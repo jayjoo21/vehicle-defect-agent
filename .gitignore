@@ -1,0 +1,12 @@
+# 원본 데이터 — 크기 1.46GB, 절대 커밋 금지
+data/raw/
+
+# Python 캐시
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# IDE
+.vscode/
+.idea/
