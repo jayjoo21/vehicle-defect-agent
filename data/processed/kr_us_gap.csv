@@ -1,0 +1,28 @@
+﻿한국_발표일,제조사,한국_차종_원문,모델_영문,한국_대수,한국_원인,한국_증상,한국_시정시작일,sw관련_한국,미국_캠페인번호,미국_접수일,미국_컴포넌트,시차_일,분류,매칭확신도,후보수
+2024-12-18,KIA,K7,K7,137553,,,,True,,,,,매칭불가,낮음,0
+2024-12-18,HYUNDAI,넥쏘,NEXO,36122,,,,False,20V748000,2020-12-01,"SERVICE BRAKES, HYDRAULIC:POWER ASSIST:ELECTRIC:CONTROL MODULE:SOFTWARE",1478.0,미국선행,중간,1
+2025-08-07,HYUNDAI,쏠라티,쏠라티,5974,휠 고정용 너트 체결 불량,인해 주행 중 너트 풀림 및 휠 이탈 발생,,False,,,,,매칭불가,낮음,0
+2025-09-10,HYUNDAI,팰리세이드,PALISADE,27656,,,,False,25V291000,2025-05-06,POWER TRAIN:AUTOMATIC TRANSMISSION:FLUID/LUBRICANT:PUMP,127.0,미국선행,높음,5
+2025-09-24,HYUNDAI,포터2,PORTER,60934,엔진 구동벨트* 장력 조절장치의 설계 오류,구동벨트가 이탈되어 조향장치가 정상 작동하지 않을,,False,,,,,한국단독,낮음,0
+2025-09-24,KIA,봉고3,BONGO,33990,엔진 구동벨트 장력 조절장치의 설계 오류,구동벨트가 이탈되어 조향장치의 정상 작동하지 않을,,False,,,,,한국단독,낮음,0
+2025-10-15,HYUNDAI,아이오닉6,IONIQ 6,24705,충전도어 커버,,,False,25V606000,2025-09-12,ELECTRICAL SYSTEM:PROPULSION SYSTEM:CHARGING:PORT,33.0,미국선행,높음,2
+2025-10-30,HYUNDAI,포터Ⅱ Electric,PORTER,85355,배터리관리시스템(BMS) 소프트웨어,인해 화재가 발생할,,True,,,,,한국단독,낮음,0
+2025-10-30,KIA,봉고Ⅲ EV,BONGO,54532,배터리관리시스템(BMS) 소프트웨어,인해 화재가 발생할,,True,,,,,한국단독,낮음,0
+2025-01-23,HYUNDAI,포터Ⅱ EV 등 2개 차종,PORTER,141125,,,,False,,,,,한국단독,낮음,0
+2025-01-23,KIA,쏘렌토 하이브리드,SORENTO,89598,,,,True,25V006000,2025-01-13,ELECTRICAL SYSTEM:BODY CONTROL MODULE:SOFTWARE,10.0,미국선행,높음,7
+2025-02-19,KIA,니로,NIRO,35571,,,,False,25V426000,2025-06-20,BACK OVER PREVENTION: SENSING SYSTEM: CAMERA,-121.0,한국선행,높음,3
+2025-05-21,KIA,셀토스,SELTOS,12949,고압파이프 제조 불량,고압파이프와 주변 부품의 연결부에서 연료가 누유되어 화재가 발생할,,False,23V531000,2023-07-31,POWER TRAIN:AUTOMATIC TRANSMISSION:FLUID/LUBRICANT:PUMP,660.0,미국선행,중간,1
+2025-05-21,HYUNDAI,일렉시티 수소전기버스,일렉시티 수소전기버스,1390,,,,False,,,,,매칭불가,낮음,0
+2025-06-25,HYUNDAI,아반떼,ELANTRA,2555,주차 브레이크 부속품 설계 오류,승객이 상해를 입을,,False,24V308000,2024-05-01,ENGINE AND ENGINE COOLING:EXHAUST SYSTEM:EMISSION CONTROL:GAS RECIRCULATION VALVE (EGR VALVE),420.0,미국선행,중간,1
+2026-01-15,HYUNDAI,현대자동차 아반떼,ELANTRA,130283,,,,False,24V308000,2024-05-01,ENGINE AND ENGINE COOLING:EXHAUST SYSTEM:EMISSION CONTROL:GAS RECIRCULATION VALVE (EGR VALVE),624.0,미국선행,중간,1
+2026-01-15,KIA,기아 K3,K3,113793,바디 제어장치 소프트웨어 설계 오류,,,True,,,,,매칭불가,낮음,0
+2026-02-11,HYUNDAI,포터Ⅱ 일렉트릭,PORTER,36603,,제동 성능이 저하될,,True,,,,,한국단독,낮음,0
+2026-02-11,KIA,봉고Ⅲ EV,BONGO,25078,,제동 성능이 저하될,,True,,,,,한국단독,낮음,0
+2026-02-26,HYUNDAI,코나 전기차,KONA,37690,배터리관리시스템 소프트웨어,,,True,23V901000,2023-12-26,ELECTRICAL SYSTEM:12V/24V/48V BATTERY:CABLES,793.0,미국선행,중간,4
+2026-02-26,KIA,니로 전기차,NIRO,1590,,,,True,25V426000,2025-06-20,BACK OVER PREVENTION: SENSING SYSTEM: CAMERA,251.0,미국선행,중간,3
+2026-03-24,HYUNDAI,팰리세이드 전동시트 관련 결함,PALISADE,408942,"2열, 3열 전동시트 제어기 소프트웨어","시정조치(리콜)한다고 밝혔다. □ 우선, 최근 발생한 전동시트 관련 사고와 관련하여 현대자동차㈜는 팰리 세이드 등 2개 차종 57,987대의 2열, 3열 전동시트 제어기 소프트웨어 설계 미흡으로 인해 탑승자나 사물과의 접촉을 감지하지 못해 안전에 지장을 줄",2026-03-20,True,26V169000,2026-03-20,SEAT BELTS: REAR/OTHER:BUCKLE ASSEMBLY,4.0,미국선행,높음,5
+2026-03-24,KIA,카니발,CARNIVAL,201841,저압연료라인,,,False,23V179000,2023-03-17,TRAILER HITCHES,1103.0,미국선행,중간,2
+2026-03-24,HYUNDAI,팰리세이드,PALISADE,41143,3열 좌측 안전띠 버클 배선,,,False,26V169000,2026-03-20,SEAT BELTS: REAR/OTHER:BUCKLE ASSEMBLY,4.0,미국선행,높음,5
+2026-04-22,KIA,레이,RAY,220059,엔진제어장치 소프트웨어,,,True,,,,,한국단독,낮음,0
+2026-04-22,HYUNDAI,싼타페,SANTA FE,239683,1열 좌석 안전띠 고정 장치,충돌사고 시 승객을 정상적으로 보호하지 못할,,True,25V808000,2025-11-21,BACK OVER PREVENTION:DISPLAY FUNCTION,152.0,미국선행,높음,8
+2026-07-02,HYUNDAI,투싼,TUCSON,54792,계기판 제어 소프트웨어 오류,,,True,26V400000,2026-06-24,ELECTRICAL SYSTEM: INSTRUMENT CLUSTER/PANEL,8.0,미국선행,높음,6
