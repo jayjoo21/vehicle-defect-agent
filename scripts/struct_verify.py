@@ -134,7 +134,7 @@ def main():
         cdescr_full = cdescr_map.get(odino, "")
         grade_rows.append({
             "ODINO": odino,
-            "CDESCR_앞300자": cdescr_full[:300],
+            "CDESCR": cdescr_full,
             "원래_COMPDESC": compdesc_map.get(odino, ""),
             "LLM_part_category": rec.get("part_category", ""),
             "LLM_symptoms": " / ".join(rec.get("symptoms", [])),
