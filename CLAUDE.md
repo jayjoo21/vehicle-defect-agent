@@ -111,3 +111,32 @@ kr_us_gap.csv 요약 (현대·기아 × NHTSA SW 후보)
 COMPDESC 불정확 원칙과 동일: 보도자료 ①② 기호가 리콜 항목이 아닌 개선사항 불릿으로 쓰이는 경우 있음 (260324 사례)
 □ 단락 형식(원 번호 없음) 리콜은 molit_parse.py의 parse_preamble_recalls()가 처리
 장기 시차(1000일↑) 매칭은 recalls_sw_candidates.csv의 SW 후보 커버리지 한계로 최신 매칭 없을 때 구형 캠페인과 연결된 것 — 해석 주의
+
+
+Task 5 산출물 (2026-07-05 완료) — LLM 구조화 미니 테스트
+
+
+scripts/struct_verify.py — 스키마+환각 자동 검증
+data/processed/llm_struct_test_results.jsonl — 20건 구조화 결과
+data/samples/grading_sheet.csv — 수동 채점용 시트
+
+
+검증 결과: 스키마 위반 0/20, 인용 불일치(환각) 0/20
+insufficient_info=true: 3건 (ODINO: 11478093·11729316·11505201)
+
+
+UNKNOWN OR OTHER 7건 재분류 결과 (LLM이 서술문만으로 판단)
+
+
+11568390 SORENTO → ELECTRICAL_SYSTEM (화재+동력상실)
+11723787 TELLURIDE → POWERTRAIN_SW (변속충격+RPM불안정)
+11554308 SORENTO → ELECTRICAL_SYSTEM (도어잠금오류, 탑승자 갇힘)
+11541676 IONIQ 5 → NON_ELECTRICAL (서스펜션 — SW 관련성 낮음)
+11635055 SOUL → NON_ELECTRICAL (오일 소모)
+11505201 PALISADE → NON_ELECTRICAL (견인장치 리콜 — insufficient_info=true)
+11478093 SPORTAGE → INSUFFICIENT_INFO (체크엔진 원인 불명)
+
+
+part_category 분포: ADAS 10건, ELECTRICAL_SYSTEM 4건, NON_ELECTRICAL 3건, POWERTRAIN_SW 2건, INSUFFICIENT_INFO 1건
+severity 분포: CRITICAL 11건, SERIOUS 5건, MODERATE 2건, MINOR 2건
+채점 기준: data/samples/grading_sheet.csv (부품_정오·심각도_정오·증상_정오·환각_여부·오류유형·메모 컬럼 빈칸)
