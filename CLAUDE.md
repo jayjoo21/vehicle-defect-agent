@@ -140,3 +140,43 @@ UNKNOWN OR OTHER 7건 재분류 결과 (LLM이 서술문만으로 판단)
 part_category 분포: ADAS 10건, ELECTRICAL_SYSTEM 4건, NON_ELECTRICAL 3건, POWERTRAIN_SW 2건, INSUFFICIENT_INFO 1건
 severity 분포: CRITICAL 11건, SERIOUS 5건, MODERATE 2건, MINOR 2건
 채점 기준: data/samples/grading_sheet.csv (부품_정오·심각도_정오·증상_정오·환각_여부·오류유형·메모 컬럼 빈칸)
+
+
+Task 6 산출물 (2026-07-05 완료) — KOTSA 리콜대수 데이터 전처리 + 한미 시차 v2
+
+
+data/raw/한국교통안전공단_차종별 리콜대수_20251231.csv — 원본 (cp949, 13,560행)
+scripts/kotsa_prep.py — 현대·기아 필터 + 차명 정규화 + SW 플래그
+data/processed/kotsa_recalls_hk.csv — 680행 × 13열 (현대·기아, 2012-03~2025-12)
+scripts/kotsa_gap_v2.py — KOTSA 기반 한미 매칭 + 캠페인 대응표
+data/processed/kr_us_gap_v2.csv — 103행 (보도자료 27 + KOTSA 76)
+data/processed/campaign_kotsa_check.csv — 76건 캠페인 × KOTSA 대응 여부
+
+
+KOTSA 데이터 특성
+
+
+날짜: 리콜개시일 (KOTSA 공식 시정 시작일) — 보도자료 발표일과 수일~수주 차이 있을 수 있음
+SW 관련: 680건 중 219건 (32.2%)
+date_basis 컬럼으로 "보도자료" 기반 행과 "KOTSA리콜개시일" 기반 행을 반드시 구분할 것
+
+
+KOTSA 기반 매칭 결과 (76건, ±730일 윈도우)
+
+
+미국선행: 31건 / 한국선행: 38건 / 매칭불가: 7건
+매칭불가 대부분: KIA TELLURIDE (미국 전용 모델, 한국 미판매) + KIA RIO
+매칭 주의: KOTSA 데이터가 2025-12-31 종료 → 2026년 이후 NHTSA 캠페인은 KOTSA 날짜가 한국 선행으로 보이는 오매칭 위험
+
+
+주목 캠페인 5건 결과 (23V531000·24V204000·24V757000·25V006000·25V115000)
+
+
+23V531000 SELTOS 2023-07-31 → KR 2023-08-30 (미국선행 +30일, SW 플래그 없음)
+24V204000 IONIQ 6 2024-03-15 → KR 2024-03-18 (미국선행 +3일, SW=O)
+24V757000 EV9 2024-10-10 → KR 2024-10-07 (한국선행 -3일, SW=O)
+25V006000 SORENTO 2025-01-13 → KR 2025-01-24 (미국선행 +11일, SW=O)
+25V115000 EV9 2025-02-24 → KR 2025-01-22 (한국선행 -33일, SW 플래그 없음)
+
+
+KOTSA 모델명 매핑 미등록 (수동 검토 필요): 벨로스터, 베라크루즈, 그랜드스타렉스, 마이티, 파비스, EQ900, 엑시언트 등
