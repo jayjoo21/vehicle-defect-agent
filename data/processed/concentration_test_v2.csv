@@ -1,0 +1,11 @@
+﻿model,month,group,group_v2,hit_base_observed,censored,top_part_category,top_part_ratio,mentions_existing_recall_count
+CARNIVAL,2024-08,non_recall,non_recall,False,False,PROPULSION_BATTERY,1.0,0
+EV9,2024-09,recall_linked,recall_linked,True,False,INSTRUMENT_CLUSTER,0.9655,0
+IONIQ 5,2025-03,recall_linked,recall_linked,True,False,PROPULSION_BATTERY,0.8667,5
+IONIQ 5,2023-05,recall_linked,recall_linked,True,False,PROPULSION_BATTERY,0.7333,0
+TUCSON HYBRID,2025-05,non_recall,recall_linked,True,False,ADAS,0.7,1
+GENESIS,2024-04,non_recall,non_recall,False,False,ELECTRICAL_SYSTEM,0.5714,9
+TUCSON HYBRID,2025-07,non_recall,recall_linked,True,True,INSTRUMENT_CLUSTER,0.5333,0
+K4,2026-02,non_recall,non_recall,False,True,ADAS,0.5,1
+KONA,2025-08,recall_linked,recall_linked,True,True,ELECTRICAL_SYSTEM,0.3571,1
+PALISADE,2022-08,recall_linked,recall_linked,True,False,POWERTRAIN_SW,0.3,1

@@ -1,0 +1,11 @@
+﻿model,month,count,hit,group
+EV9,2024-09,52,True,recall_linked
+KONA,2025-08,18,True,recall_linked
+IONIQ 5,2025-03,50,True,recall_linked
+IONIQ 5,2023-05,24,True,recall_linked
+PALISADE,2022-08,12,True,recall_linked
+GENESIS,2024-04,15,False,non_recall
+K4,2026-02,10,False,non_recall
+TUCSON HYBRID,2025-05,15,False,non_recall
+CARNIVAL,2024-08,53,False,non_recall
+TUCSON HYBRID,2025-07,28,False,non_recall

@@ -267,3 +267,93 @@ part_category: ELECTRICAL_SYSTEM 8/14(57.1%) / INSUFFICIENT_INFO 6/14(42.9%) —
 
 
 data/processed/hk_electrical_recent_full.csv는 동일 ODINO가 COMPDESC별로 여러 행을 갖는 구조 — b1_signals.csv의 count는 이 원본 행수 기준이라 실제 고유 불만 수보다 다소 부풀려져 있음(예: EV9 2024-09 원본52행 vs 고유29건). 스파이크 배율 자체는 과장되나 임계치 초과 여부의 결론은 대체로 바뀌지 않음(고유건수 기준 재계산해도 14.5배로 여전히 초과) — 다음 baseline 개선 시 고유 ODINO count로 전환 검토할 것
+
+
+Task 9 산출물 (2026-07-06 완료) — 집중도(part_category 최빈비율) 2차 필터 가설 검증
+
+
+scripts/concentration_sample.py — b1_signals.csv 발화 67건을 "12개월 내 리콜 연계(42건)"/"비연계(25건)"로 나누고 각 그룹 5건 추출(seed=42, EV9 2024-09·GENESIS 2024-04 강제 포함·재사용)
+data/processed/concentration_sample.csv — 표본 10건 목록
+data/processed/struct_concentration_new8.jsonl — 신규 8개 발화 × 최대 15건(초과 시 seed=42 무작위) = 100건 구조화 (스키마위반 0/100, 인용불일치 0/100 — struct_verify_generic.py 검증)
+scripts/concentration_aggregate.py — 표본 10건(신규8+기존2 재사용)의 part_category 최빈비율·최빈증상비율·mentions_existing_recall 집계
+data/processed/concentration_test.csv — 최종 10행 결과
+
+
+검증 결과 — 표본 10건의 집중도(top_part_ratio) 및 리콜연계 여부
+
+
+| 차종·월 | 그룹 | 최빈 part_category | 집중도 |
+|---|---|---|---|
+| CARNIVAL 2024-08 | 비리콜 | PROPULSION_BATTERY(기생방전) | **1.000** |
+| EV9 2024-09 | 리콜연계 | INSTRUMENT_CLUSTER | 0.966 |
+| IONIQ5 2025-03 | 리콜연계 | PROPULSION_BATTERY(ICCU) | 0.867 |
+| IONIQ5 2023-05 | 리콜연계 | PROPULSION_BATTERY(ICCU) | 0.733 |
+| TUCSON HYBRID 2025-05 | 비리콜 | ADAS(FCA 오작동+주의카메라) | 0.700 |
+| GENESIS 2024-04 | 비리콜 | ELECTRICAL_SYSTEM | 0.571 |
+| TUCSON HYBRID 2025-07 | 비리콜 | INSTRUMENT_CLUSTER | 0.533 |
+| K4 2026-02 | 비리콜 | ADAS | 0.500 |
+| KONA 2025-08 | 리콜연계 | ELECTRICAL_SYSTEM | 0.357 |
+| PALISADE 2022-08 | 리콜연계 | POWERTRAIN_SW | **0.300** |
+
+리콜연계 그룹 평균 0.645(중앙값 0.733) vs 비리콜 그룹 평균 0.661(중앙값 0.571) — **두 그룹의 집중도 분포가 사실상 구분되지 않음(비리콜 그룹 평균이 오히려 근소하게 높음)**
+
+
+핵심 발견: 표본 양 극단에서 가설과 정반대 결과
+
+
+- 표본 전체에서 **집중도 1위(CARNIVAL, 100%, 기생 배터리 방전)는 리콜 비연계**, **집중도 최하위 2건(PALISADE 30.0%, KONA 35.7%)은 둘 다 리콜연계** — "집중도가 높을수록 리콜로 이어진다"는 report_false_alarm.md의 가설(임계치 80%↑ 제안)과 정반대 방향
+- 임계값 후보 적용 시(이 10건 표본 기준, 원래 정밀도 5/10=50%): ≥0.80 적용 시 통과 3건(EV9·IONIQ5 2025-03·CARNIVAL) 중 2건만 실제 리콜 → 정밀도 66.7%로 개선되나, 실제 리콜연계 5건 중 3건(IONIQ5 2023-05·KONA·PALISADE)을 걸러내 재현율이 5/5→2/5로 급락. ≥0.50 적용 시엔 오히려 정밀도가 37.5%(3/8)로 **기준선보다 악화**(KONA·PALISADE라는 저집중도 실제 리콜 2건을 미리 제외해버리는 대신 CARNIVAL 등 고집중 비리콜 다수를 통과시키기 때문)
+- 결론: **표본 10건 규모에서도 방향성이 뚜렷하여, "집중도 ≥80%" 2차 필터 가설(Task 8에서 n=2로 제안)은 기각**. 집중도는 이 차원만으로는 신뢰할 수 있는 리콜연계 판별 변수가 아님
+
+
+mentions_existing_recall (기존 리콜/캠페인 언급 여부) 예비 조사
+
+
+- 리콜연계 그룹: 7/83건(8.4%) 언급 (IONIQ5 2025-03이 5건으로 대부분 기여 — ICCU 리콜이 이미 잘 알려져 소비자가 인지하고 언급)
+- 비리콜 그룹: 11/60건(18.3%) 언급 — 그러나 GENESIS 단독 9건이 대부분을 차지(기존 리콜 24V107000 부품지연 항의라는 특수 사례). GENESIS 제외 시 2/46건(4.3%)으로 오히려 리콜연계 그룹보다 낮음
+- 이 지표도 특정 사례(GENESIS) 의존도가 높아 일반화된 2차 필터로 쓰기엔 표본 부족
+
+
+데이터 품질 발견 (부수적, 해석 주의)
+
+
+- **TUCSON HYBRID ≠ TUCSON 모델명 불일치**: recalls_hk_by_vehicle.csv에는 "TUCSON HYBRID"가 없고 "TUCSON"만 존재. TUCSON HYBRID 2025-07 발화(INSTRUMENT_CLUSTER 53.3%, 계기판/HUD 블랙아웃 문구가 실제 26V400000 투싼 계기판 SW 리콜·접수 2026-06-24와 매우 유사)가 모델명 불일치로 "비리콜(미스)"로 분류됐을 가능성 — 이는 baseline 실패가 아니라 **차종 매칭 단위의 데이터 정합성 문제**로 별도 처리 필요
+- **K4 2026-02 우측 절단(right-censoring) 위험**: 정밀도 체크의 12개월 관측 창이 2026년 초 발화 건에서는 데이터 수집 종료 시점에 가깝게 걸쳐 있어, "리콜 없음"이 진짜 미스인지 아직 관측 기간이 다 안 찬 것인지 구분 불가
+
+
+Task 10 산출물 (2026-07-06 완료) — 라벨 정제 후 정밀도·집중도 재계산
+
+
+scripts/precision_v2.py — ① 차종명 정규화(HYBRID/PLUG-IN HYBRID/PLUG-IN/PHEV/ELECTRIC 접미어 제거 → base_model 통일) 후 발화 67건 리콜연계·정밀도 재계산, ② 발화월 >= 2025-07(데이터 종료 2026-06 기준 12개월 관측 미충족)을 "관측기간 부족"으로 분리
+data/processed/precision_v2.csv — 발화 67건 × (model, base_model, hit_raw_v1, hit_base_observed, hit_base_full_window, censored)
+scripts/concentration_regroup_v2.py — 집중도 표본 10건에 base_model 재분류 반영, 그룹 이동 확인 및 임계값 효과 재계산
+data/processed/concentration_test_v2.csv — 재분류 결과
+
+
+① 차종명 정규화 결과
+
+
+CARNIVAL HYBRID→CARNIVAL, ELANTRA HYBRID→ELANTRA, IONIQ ELECTRIC/HYBRID/PLUG-IN HYBRID→IONIQ, KONA ELECTRIC→KONA, NIRO PHEV→NIRO, OPTIMA HYBRID/PHEV→OPTIMA, PALISADE HYBRID→PALISADE, SANTA FE HYBRID/PLUG-IN HYBRID→SANTA FE, SONATA HYBRID/PLUG-IN HYBRID→SONATA, SORENTO HYBRID/PHEV→SORENTO, SPORTAGE HYBRID/PHEV→SPORTAGE, TELLURIDE HYBRID→TELLURIDE, **TUCSON HYBRID/PLUG-IN HYBRID→TUCSON**
+정밀도: v1(원 모델명) 42/67=62.7% → v2(base_model, 관측가능분 반영) **50/67=74.6%**. base_model 정규화만으로 8건이 miss→hit로 뒤집힘(SANTA FE HYBRID 2025-08, SONATA HYBRID 2023-10, TUCSON HYBRID 2024-09·2025-05·2025-06·2025-07·2025-08·2026-05) — 대부분 "차종명 문자열 불일치로 인한 가짜 미스"였음, Task 9에서 발견한 TUCSON HYBRID 사례가 일반적인 패턴이었음을 확인
+
+
+② 우측 절단 분리 결과 (발화월 >= 2025-07, 26건)
+
+
+관측기간 충족(41건): hit=33 → 정밀도 **80.5%**
+관측기간 부족(26건, 정밀도 분모에서 제외): 그중 17건은 이미 관측된 조기 리콜연계 확인(예: IONIQ 5 2025-12~2026-02, KONA 2025-07·08, PALISADE 2025-07·09 등) — 나머지 9건(EV6 3개월·FORTE·K4·NIRO 등)은 현재까지 리콜 미관측이나 관측기간이 안 찼으므로 "미스 확정"이 아님
+
+
+③ 집중도 표본 10건 재분류 — 그룹 이동 2건
+
+
+TUCSON HYBRID 2025-05(비리콜→**리콜연계**, 집중도 0.700), TUCSON HYBRID 2025-07(비리콜→**리콜연계**, 집중도 0.533, 단 censored=True — 26V400000 리콜(2026-06-24)이 관측가능 구간 내 이미 확인되어 조기 hit으로 처리)
+재분류 후 그룹 구성: 리콜연계 7건 / 비리콜 3건(GENESIS·K4·CARNIVAL만 남음) — 원래 5:5였던 표본이 사실 7:3에 가까웠음(TUCSON HYBRID 2건이 모델명 매칭 버그로 잘못 비리콜에 배정돼 있었음)
+재계산된 집중도: 리콜연계(n=7) 평균 0.637·중앙값 0.700 [0.300, 0.357, 0.533, 0.700, 0.733, 0.867, 0.966] vs 비리콜(n=3) 평균 0.690·중앙값 0.571 [0.500, 0.571, **1.000**] — **재분류 후에도 비리콜 그룹 평균이 여전히 근소하게 높음**, CARNIVAL(100%, 확정 비censored 미스)이 핵심 반례로 남음
+임계값 효과 재계산(기준선 7/10=0.700): ≥0.50 → 5/8=0.625(악화, 실제 리콜 2건 누락), ≥0.70 → 4/5=0.800(개선되나 실제 리콜 7건 중 3건 누락하고 CARNIVAL은 여전히 통과), ≥0.80 → 2/3=0.667(악화). **라벨 정제 후에도 "집중도 단일 임계값" 결론은 바뀌지 않음** — 어떤 임계값도 정밀도를 안정적으로 개선하면서 재현율을 유지하지 못함
+
+
+④ 정밀도 해석상 한계 (명시)
+
+
+**"비리콜" 라벨은 NHTSA 리콜 DB(recalls_hk_by_vehicle.csv) 기준이며, 서비스 캠페인·TSB(기술서비스회보)로 처리되고 정식 리콜로 등록되지 않은 결함 대응 건을 포착하지 못한다 — 따라서 위 정밀도(74.6%/80.5%)는 실제 "결함 대응으로 이어진" 비율의 하한 추정치다.**

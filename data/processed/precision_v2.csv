@@ -1,0 +1,68 @@
+﻿model,base_model,month,count,hit_raw_v1,hit_base_observed,hit_base_full_window,censored
+CARNIVAL,CARNIVAL,2024-08,53,False,False,False,False
+CARNIVAL,CARNIVAL,2025-08,10,True,True,True,True
+ELANTRA,ELANTRA,2025-11,35,True,True,True,True
+EV6,EV6,2023-06,15,True,True,True,False
+EV6,EV6,2023-07,17,True,True,True,False
+EV6,EV6,2024-03,23,True,True,True,False
+EV6,EV6,2025-02,15,False,False,False,False
+EV6,EV6,2025-04,21,False,False,False,False
+EV6,EV6,2025-12,27,False,False,False,True
+EV6,EV6,2026-01,41,False,False,False,True
+EV6,EV6,2026-02,71,False,False,False,True
+EV9,EV9,2024-09,52,True,True,True,False
+EV9,EV9,2024-10,70,True,True,True,False
+FORTE,FORTE,2023-06,14,True,True,True,False
+FORTE,FORTE,2025-09,18,False,False,False,True
+GENESIS,GENESIS,2024-04,15,False,False,False,False
+GENESIS,GENESIS,2024-05,12,False,False,False,False
+IONIQ 5,IONIQ 5,2023-03,15,True,True,True,False
+IONIQ 5,IONIQ 5,2023-05,24,True,True,True,False
+IONIQ 5,IONIQ 5,2023-06,57,True,True,True,False
+IONIQ 5,IONIQ 5,2023-07,40,True,True,True,False
+IONIQ 5,IONIQ 5,2025-01,23,True,True,True,False
+IONIQ 5,IONIQ 5,2025-02,31,True,True,True,False
+IONIQ 5,IONIQ 5,2025-03,50,True,True,True,False
+IONIQ 5,IONIQ 5,2025-12,50,True,True,True,True
+IONIQ 5,IONIQ 5,2026-01,134,True,True,True,True
+IONIQ 5,IONIQ 5,2026-02,192,True,True,True,True
+IONIQ 6,IONIQ 6,2026-01,19,True,True,True,True
+K4,K4,2026-02,10,False,False,False,True
+K5,K5,2024-07,11,True,True,True,False
+K5,K5,2025-05,13,True,True,True,False
+K5,K5,2025-07,10,True,True,True,True
+K5,K5,2025-08,22,True,True,True,True
+KONA,KONA,2022-12,10,True,True,True,False
+KONA,KONA,2024-06,15,False,False,False,False
+KONA,KONA,2025-07,11,True,True,True,True
+KONA,KONA,2025-08,18,True,True,True,True
+KONA,KONA,2026-02,23,False,False,False,True
+NIRO,NIRO,2026-05,10,False,False,False,True
+PALISADE,PALISADE,2022-08,12,True,True,True,False
+PALISADE,PALISADE,2022-09,10,True,True,True,False
+PALISADE,PALISADE,2025-07,33,True,True,True,True
+PALISADE,PALISADE,2025-09,38,True,True,True,True
+SANTA CRUZ,SANTA CRUZ,2023-06,10,True,True,True,False
+SANTA FE,SANTA FE,2023-06,25,True,True,True,False
+SANTA FE,SANTA FE,2023-07,30,True,True,True,False
+SANTA FE,SANTA FE,2024-12,33,True,True,True,False
+SANTA FE HYBRID,SANTA FE,2025-08,20,False,True,True,True
+SANTA FE HYBRID,SANTA FE,2026-06,10,False,False,False,True
+SONATA HYBRID,SONATA,2023-10,13,False,True,True,False
+SORENTO,SORENTO,2024-07,94,True,True,True,False
+SOUL,SOUL,2023-04,23,True,True,True,False
+SPORTAGE,SPORTAGE,2022-08,19,True,True,True,False
+SPORTAGE,SPORTAGE,2022-10,17,True,True,True,False
+SPORTAGE,SPORTAGE,2024-04,19,True,True,True,False
+TELLURIDE,TELLURIDE,2023-04,16,True,True,True,False
+TELLURIDE,TELLURIDE,2023-08,26,True,True,True,False
+TUCSON,TUCSON,2025-11,60,True,True,True,True
+TUCSON HYBRID,TUCSON,2024-09,12,False,True,True,False
+TUCSON HYBRID,TUCSON,2025-05,15,False,True,True,False
+TUCSON HYBRID,TUCSON,2025-06,20,False,True,True,False
+TUCSON HYBRID,TUCSON,2025-07,28,False,True,True,True
+TUCSON HYBRID,TUCSON,2025-08,33,False,True,True,True
+TUCSON HYBRID,TUCSON,2026-05,13,False,True,True,True
+TUCSON HYBRID,TUCSON,2026-06,26,False,False,False,True
+VELOSTER,VELOSTER,2023-09,12,False,False,False,False
+VELOSTER,VELOSTER,2024-04,10,False,False,False,False

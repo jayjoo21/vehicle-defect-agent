@@ -1,0 +1,11 @@
+﻿model,month,group,hit_recall_12m,n,top_part_category,top_part_count,top_part_ratio,top_symptom_tag,top_symptom_count,mentions_existing_recall_count
+EV9,2024-09,recall_linked,True,29,INSTRUMENT_CLUSTER,28,0.9655,계기판 랜덤 블랙아웃,3,0
+KONA,2025-08,recall_linked,True,14,ELECTRICAL_SYSTEM,5,0.3571,속도조절 버튼 고장(수리 시 에어백 탈거 필요),1,1
+IONIQ 5,2025-03,recall_linked,True,15,PROPULSION_BATTERY,13,0.8667,EV 시스템 경고 및 전원공급 이상,1,5
+IONIQ 5,2023-05,recall_linked,True,15,PROPULSION_BATTERY,11,0.7333,회생제동 시 제동등 미점등,3,0
+PALISADE,2022-08,recall_linked,True,10,POWERTRAIN_SW,3,0.3,운전석 창문 작동불능(ICU 정션박스 고장),1,1
+GENESIS,2024-04,non_recall,False,14,ELECTRICAL_SYSTEM,8,0.5714,결함 미경험(리콜 부품 대기 중 불만),6,9
+K4,2026-02,non_recall,False,6,ADAS,3,0.5,계기판/인포테인먼트 화면 간헐적 꺼짐,1,1
+TUCSON HYBRID,2025-05,non_recall,False,10,ADAS,7,0.7,운전자주의경고 과민 오작동(주행 중 지속 방해),1,1
+CARNIVAL,2024-08,non_recall,False,15,PROPULSION_BATTERY,15,1.0,기생 배터리 방전 반복(월 6회 점프 필요),1,0
+TUCSON HYBRID,2025-07,non_recall,False,15,INSTRUMENT_CLUSTER,8,0.5333,계기판 완전 블랙아웃(속도계·경고등 상실),1,0
