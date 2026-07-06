@@ -1,0 +1,19 @@
+﻿odino,part_category_v1,part_category_v2,part_category_changed,severity_v1,severity_v2,severity_changed,driving_context_v1,driving_context_v2,driving_context_changed,insufficient_info_v1,insufficient_info_v2,insufficient_info_changed,symptoms_changed,any_change,applied_v2_rules
+11456266,ELECTRICAL_SYSTEM,ELECTRICAL_SYSTEM,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,유리 파손=결함 자체 발현(Rule① N/A). Rule②: 고속 주행 중 시야 상실+파편 위험=대체불가→CRITICAL 허용.
+11478093,INSUFFICIENT_INFO,INSUFFICIENT_INFO,False,MODERATE,MODERATE,False,불명,불명,False,True,True,False,False,False,Rule①②③ 적용 대상 아님. 정보 부족 상태 유지.
+11505201,NON_ELECTRICAL,NON_ELECTRICAL,False,MINOR,MINOR,False,불명,불명,False,True,True,False,False,False,Rule①②③ 적용 대상 아님. 변화 없음.
+11541676,NON_ELECTRICAL,NON_ELECTRICAL,False,MINOR,MINOR,False,주행 중,주행 중,False,False,False,False,False,False,Rule①②③ 적용 대상 아님. 변화 없음.
+11547006,ADAS,ADAS,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,Rule③: AEB 허위 급제동=오작동→CRITICAL 확정. Rule②: 제동=대체불가→CRITICAL 허용.
+11554308,ELECTRICAL_SYSTEM,ELECTRICAL_SYSTEM,False,SERIOUS,SERIOUS,False,정차·주차 중,정차·주차 중,False,False,False,False,False,False,Rule②: 도어잠금=제동/조향/동력/계기판 외 항목→CRITICAL 요건 미충족. 탈출 불가는 위험하나 Rule② CRITICAL 허용 목록 외→SERIOUS 유지.
+11568390,ELECTRICAL_SYSTEM,ELECTRICAL_SYSTEM,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,화재+동력상실=결함 자체 발현(Rule① N/A). Rule②: 동력상실+화재=대체불가→CRITICAL 허용.
+11582082,POWERTRAIN_SW,POWERTRAIN_SW,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,Rule②: 주행 중 동력 무반응=대체불가→CRITICAL 허용. 변화 없음.
+11584614,ELECTRICAL_SYSTEM,ELECTRICAL_SYSTEM,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,화재=결함 자체 발현(Rule① N/A). 전기화재=대체불가(Rule② CRITICAL허용). Rule③ N/A.
+11617279,ADAS,ADAS,False,SERIOUS,SERIOUS,False,주행 중,주행 중,False,False,False,False,False,False,Rule②: 후방카메라=대체수단 있음→상한 SERIOUS. 이미 SERIOUS. 변화 없음.
+11627029,ADAS,ADAS,False,SERIOUS,SERIOUS,False,주행 중,주행 중,False,False,False,False,False,False,Rule③: 미작동(자의적 개입 아님)→상향 없음. Rule②: ADAS 미작동=운전자가 1차 제어자→SERIOUS 상한. 이미 SERIOUS. 변화 없음.
+11635055,NON_ELECTRICAL,NON_ELECTRICAL,False,MODERATE,MODERATE,False,불명,불명,False,False,False,False,False,False,Rule①②③ 적용 대상 아님. 변화 없음.
+11694208,ADAS,ADAS,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,Rule③: 허위 경보=오작동→상향 요인. Rule①: 인과 명시('because the system alarmed...that it startled me')→반영 가능. Rule②: 경보 자체는 보조 ADAS이나 고속 주행 중 운전자 놀람→조향 상실 위험→CRITICAL 유지.
+11698291,ADAS,ADAS,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,Rule③: FCA 허위 급제동=오작동→CRITICAL 확정. Rule①: 추돌 위험은 직접 인과 서술됨. Rule②: 제동=대체불가→CRITICAL 허용.
+11700995,ADAS,ADAS,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,Rule③: AEB 허위 급제동+스티어링 제어권 미반환=복합 오작동→CRITICAL 확정. Rule②: 제동+조향=대체불가→CRITICAL 허용.
+11707033,ADAS,ADAS,False,CRITICAL,CRITICAL,False,주행 중,주행 중,False,False,False,False,False,False,Rule③: 차선유지 시스템 자의적 조향 개입=오작동→상향 요인. Rule②: 조향 간섭=대체불가→CRITICAL 허용. CRITICAL 유지.
+11723787,POWERTRAIN_SW,POWERTRAIN_SW,False,SERIOUS,SERIOUS,False,주행 중,주행 중,False,False,False,False,False,False,Rule③: 급변속=예상치 못한 변속 거동이나 '능동 개입'보다 기계적 오작동에 가까움→Rule③ 해당성 낮음. Rule②: 제어 어려움 있으나 차를 정차시킬 수 있었음→완전 동력상실 아님→SERIOUS 유지.
+11737278,ADAS,ADAS,False,SERIOUS,SERIOUS,False,주행 중,주행 중,False,False,False,False,False,False,Rule③: ACC 비활성화=센서 고장으로 인한 기능 소실(미작동)→자의적 개입 아님→상향 없음. 차량 감속은 fail-safe 동작이지 능동 제동 아님. SERIOUS 유지.
