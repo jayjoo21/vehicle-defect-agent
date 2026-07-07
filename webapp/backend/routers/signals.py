@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from db import get_db
+from engine.episode import aggregate_by_month, derive_episode_state
 from engine.normalize import normalize_model
-from engine.state import STATE_PRIORITY, top_state
+from engine.state import STATE_PRIORITY
 
 router = APIRouter(tags=["signals"])
 
@@ -17,23 +18,38 @@ HEATMAP_MONTHS = 24
 CARD_SPARKLINE_MONTHS = 6
 
 
+def _recall_dates_by_model(conn) -> dict:
+    rows = conn.execute("SELECT model, report_date FROM recalls WHERE country = 'US'").fetchall()
+    lookup: dict[str, list[str]] = defaultdict(list)
+    for r in rows:
+        lookup[r["model"]].append(r["report_date"])
+    return lookup
+
+
 @router.get("/summary")
 def get_summary(conn=Depends(get_db)):
     watched_models = conn.execute("SELECT COUNT(DISTINCT model) FROM signals").fetchone()[0]
     latest_month = conn.execute("SELECT MAX(month) FROM signals").fetchone()[0]
-    active_now = conn.execute(
-        "SELECT COUNT(*) FROM signals WHERE month = ? AND state = 'active'", (latest_month,)
-    ).fetchone()[0]
     prev_month = str(pd.Period(latest_month, freq="M") - 1)
-    new_alarms = conn.execute(
-        """SELECT COUNT(*) FROM signals cur
-           WHERE cur.month = ? AND cur.state = 'active'
-           AND NOT EXISTS (
-             SELECT 1 FROM signals prev
-             WHERE prev.model = cur.model AND prev.month = ? AND prev.state = 'active'
-           )""",
-        (latest_month, prev_month),
-    ).fetchone()[0]
+
+    all_rows = conn.execute("SELECT model, month, count, baseline FROM signals").fetchall()
+    by_base: dict[str, list] = defaultdict(list)
+    for r in all_rows:
+        by_base[normalize_model(r["model"])].append(r)
+    recall_dates_by_model = _recall_dates_by_model(conn)
+
+    active_now = 0
+    new_alarms = 0
+    for base_model, rows in by_base.items():
+        by_month = aggregate_by_month(rows)
+        recalls = recall_dates_by_model.get(base_model, [])
+        cur_state = derive_episode_state(by_month, latest_month, recalls)
+        if cur_state == "active":
+            active_now += 1
+            prev_state = derive_episode_state(by_month, prev_month, recalls)
+            if prev_state != "active":
+                new_alarms += 1
+
     us_unremediated = conn.execute(
         "SELECT COUNT(*) FROM kr_us_gap WHERE us_date IS NOT NULL AND kr_start_date IS NULL"
     ).fetchone()[0]
@@ -43,7 +59,8 @@ def get_summary(conn=Depends(get_db)):
         "new_alarms_this_week": new_alarms,
         "us_recalled_kr_unremediated": us_unremediated,
         "data_as_of_month": latest_month,
-        "note": "new_alarms_this_week은 월 단위 데이터의 근사치입니다 (주간 데이터 없음).",
+        "note": "new_alarms_this_week은 월 단위 데이터의 근사치입니다 (주간 데이터 없음). "
+        "active/rising/recalled는 v0 잠정 에피소드 규칙(engine/episode.py)으로 계산됩니다.",
     }
 
 
@@ -57,13 +74,15 @@ def list_signals(state: str | None = None, model: str | None = None, conn=Depend
     by_base: dict[str, list] = defaultdict(list)
     for r in all_rows:
         by_base[normalize_model(r["model"])].append(r)
+    recall_dates_by_model = _recall_dates_by_model(conn)
 
     cards = []
     for base_model, rows in by_base.items():
         latest_rows = [r for r in rows if r["month"] == latest_month]
         if not latest_rows:
             continue
-        card_state = top_state([r["state"] for r in latest_rows])
+        by_month = aggregate_by_month(rows)
+        card_state = derive_episode_state(by_month, latest_month, recall_dates_by_model.get(base_model, []))
         count_sum = sum(r["count"] for r in latest_rows)
         top_symptom = next((r["top_symptom"] for r in latest_rows if r["top_symptom"]), None)
         report_id = next((r["report_id"] for r in latest_rows if r["report_id"]), None)

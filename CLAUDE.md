@@ -367,3 +367,25 @@ data/processed/llm_struct_test_v2_regression.csv — 18건 × (part_category/sev
 검증 결과: **18/18건 무변화** (기대와 일치) — part_category·severity·driving_context·insufficient_info·symptoms 전부 v1=v2
 18건 각각에 v2 규칙(①결함-결과분리 ②통제가능성 ③오작동>미작동)을 개별 재적용해 독립 재검증 완료. 예: AEB/FCA 허위제동 4건(11547006·11698291·11700995 등)은 Rule③(오작동)+Rule②(제동=대체불가)로 CRITICAL 유지, 후방카메라 단독 미작동(11617279)·ADAS 미작동(11627029·11737278)은 Rule②(대체가능 편의기능)로 SERIOUS 상한 유지, 도어락(11554308)은 탑승자 갇힘에도 Rule② CRITICAL 허용 목록 외라 SERIOUS 유지 — v1 프롬프트가 이미 이 규칙들과 암묵적으로 일치된 판정을 하고 있었음을 재확인
 참고: 이 18건 재구조화 자체는 이전 세션에서 최초 수행됨(commit b233ae6) — 이번 작업은 v2 규칙을 18건에 독립적으로 재적용해 결과를 검증하고, CSV 형태의 diff 리포트로 재정리 + CLAUDE.md에 최초로 기록한 것
+
+
+webapp/ — 웹 서비스 초안 v0 (docs/13_초안v0_스펙.md 기준, 2026-07-07 진행 중)
+
+
+11절 구현 순서: 1.스캐폴드 → 2.seed+DB+GET 엔드포인트 → 3.상황판(Dashboard) → 4.조사채팅(Chat) → 5.내차(MyCar) → 6.폴리시 → 7.README. 단계별 실행 가능 상태로 커밋 + 완료 보고 후 다음 단계 진행.
+1단계(85a303a)·2단계(af0b97f) 완료. seed는 스펙 9절대로 data/processed/의 b1_signals.csv·report_24V757000.md·kr_us_gap.csv·llm_struct_test_results.jsonl 4종에서만 변환(지어낸 값 없음). 3단계(상황판) 진행 중 — 착수 조건으로 상태 시맨틱을 아래와 같이 수정.
+
+
+셀 상태(cell state) vs 에피소드 상태(episode state) 분리 — 3단계 착수 조건
+
+
+signals 테이블(3,744행 = 78개 차종×48개월)의 state 컬럼은 그대로 유지: 모델×월 한 칸의 관측치(리콜 매칭 시 recalled/resolved, b1 스파이크 발화 시 active, count>baseline이면 rising, 그 외 new) — CLAUDE.md에 기록된 baseline(총 발화 67건 등)과 정확히 일치해야 하므로 변경 금지.
+반면 대시보드 카드·KPI(활성 시그널 수 등)는 "지금 이 결함이 진행 중인 에피소드인가"를 보여줘야 해서 셀 상태를 그대로 쓰면 안 됨 — 별도 규칙으로 매 요청마다 파생(저장하지 않음): webapp/backend/engine/episode.py
+  1) recalled — 매칭된 US 리콜 report_date가 기준월 이전 AND 기준월이 그 접수일로부터 12개월(365일) 이내
+  2) active — (1)에 해당하지 않고, 최근 3개월(기준월 포함) 중 하나라도 b1 스파이크 규칙(당월count≥직전6개월평균×2 AND count≥10건, scripts/b1_detect.py와 동일) 발화
+  3) rising — 최근 2개월 연속 count≥baseline×1.5 AND count≥5건
+  4) new — 그 외(이력 없음, 회색)
+"해당 결함 리콜 없음"은 "지금 12개월 이내 리콜 진행 중이 아님"으로 해석(우선순위 1번에서 이미 걸러짐) — 아주 오래 전 리콜 이력이 있다는 이유만으로 이후의 완전히 새로운 급증까지 영구히 active에서 배제하지 않음. 이 규칙은 v0 잠정안이며, 본편 상태추적 모듈이 대체할 예정(코드 상단 docstring에도 명시).
+검증 결과(기준월 2026-06, base_model 57개 카드): new 51 / recalled 4(IONIQ 6·PALISADE·SANTA FE·TUCSON) / active 1(NIRO) / rising 1(IONIQ 9). KPI: active_signals=1, new_alarms_this_week=1, watched_models=78(원본 모델명 기준, 불변), us_recalled_kr_unremediated=14(불변).
+해석: active+rising 합계 2건은 착수 전 예상(대략 3~10건)보다 적지만, 이미 기록된 baseline 발화 빈도(월평균 1.4건/78모델, 전체 차종-월의 1.8%)와 정확히 같은 자릿수 — 이번 달이 조용한 게 오히려 정상 상태. 최근 대형 급증은 대부분 이미 실제 리콜로 이어져 recalled로 분류되고(TUCSON 등), 리콜 없는 모델의 마지막 발화는 대개 2026-02(IONIQ 5·K4)로 3개월 관측창보다 앞서 있어 active에서 빠짐 — 데이터가 2026-06에서 끝나는 우측 절단(Task 10 ④ 한계)의 연장선.
+한계(명시): 원인 결함 단위로 리콜을 구분하지 않아 같은 모델에 여러 다른 결함이 있어도 리콜 하나로 뭉뚱그림. 파워트레인 변형(TUCSON/TUCSON HYBRID 등)은 base_model 기준 count·baseline을 단순 합산.
