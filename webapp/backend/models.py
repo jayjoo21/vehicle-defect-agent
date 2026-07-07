@@ -48,10 +48,15 @@ CREATE TABLE IF NOT EXISTS reports (
     created_at TEXT NOT NULL
 );
 
+-- campaign은 PK가 아님: 같은 US 캠페인이 서로 다른 한국 보도자료 항목(부품별)에
+-- 중복 매칭되는 실제 사례가 있어(예: 26V169000이 팰리세이드 보도자료 2건에 매칭),
+-- campaign을 유일키로 두면 실측 행이 유실된다.
 CREATE TABLE IF NOT EXISTS kr_us_gap (
-    campaign TEXT PRIMARY KEY,
-    us_date TEXT NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign TEXT NOT NULL,
+    us_date TEXT,
     kr_date TEXT,
+    kr_start_date TEXT,
     gap_days INTEGER,
     note TEXT
 );

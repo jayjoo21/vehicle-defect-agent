@@ -11,3 +11,12 @@ def get_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def get_db():
+    """FastAPI Depends용 요청 스코프 커넥션."""
+    conn = get_connection()
+    try:
+        yield conn
+    finally:
+        conn.close()
