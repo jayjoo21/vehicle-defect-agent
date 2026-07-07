@@ -430,3 +430,20 @@ routers/chat.py: POST /api/chat, 시나리오 3종(ev6_cluster/ioniq5_charging/o
 버그 아님 (테스트 방법 이슈): Git Bash에서 curl -d '{"message":"한글..."}' 로 직접 보내면 쉘의 콘솔 코드페이지 인코딩 문제로 서버가 400/500을 반환 — 실제 브라우저 fetch(JSON.stringify)는 항상 올바른 UTF-8을 보내므로 앱 버그가 아님. curl로 재현할 땐 UTF-8 파일을 --data-binary "@file"로 보내야 함.
 프론트: lib/sse.ts(fetch+ReadableStream 수동 SSE 파싱, EventSource는 POST 미지원), components/InvestigationTimeline.tsx(타임라인, fade+slide 200ms), components/ChatAnswerCard.tsx(답변 렌더링 — lib/markdown.tsx 재사용 + 원문 인용 목록 + 고지문), pages/Chat.tsx.
 검증: TestClient로 3개 시나리오 전부 200 확인 후 실제 uvicorn 서버+curl SSE, Vite 프록시(5173→8000) 경유까지 end-to-end 확인.
+
+
+5단계 착수 전 — recalls 테이블 전체 재구축 (이월 항목 처리)
+
+
+4단계에서 발견한 recalls 테이블의 구조적 누락(kr_us_gap.csv가 캠페인당 차종 1개만 기록)을 EV6·IONIQ 5 두 차종만 임시 보강했던 것을, data/recalls/recalls_hk_by_vehicle.csv(현대·기아 27개 차종 × 캠페인 전체 쌍, 377행)를 정본으로 전체 재구축.
+스키마 수정 필요: recalls.campaign이 PRIMARY KEY였는데, 같은 캠페인이 여러 차종에 공통 적용되는 실제 사례가 있어(예: 24V204000이 IONIQ 5·IONIQ 6·Genesis GV60/GV70/G80에 공통 적용) PK로 두면 첫 매칭 차종 외엔 전부 유실 — kr_us_gap과 동일한 클래스의 버그를 재구축 도중 미리 발견해 id INTEGER PRIMARY KEY AUTOINCREMENT로 교체(campaign은 non-unique). 기존 app.db는 스키마 마이그레이션이 안 되므로 삭제 후 재생성(gitignore 대상, 로컬 재생성 가능 확인 후 삭제).
+seed_recalls()를 recalls_hk_by_vehicle.csv 기반으로 교체, EV9 24V757000 하드코딩 제거(이 파일에 이미 존재), seed_manual.py의 EV6·IONIQ 5 리콜 보강 코드 삭제(중복 삽입 방지 — 이제 전체가 정본에서 자동으로 채워짐). kr_us_gap.csv는 한미 시차 전용(kr_us_gap 테이블)으로 역할 분리, recalls에는 더 이상 관여하지 않음. signals 셀 상태(derive_state)는 여전히 kr_us_gap.csv 기반 recall_lookup을 그대로 사용 — 이번 재구축과 무관(3단계에서 이미 셀 상태·에피소드 상태를 분리해뒀기 때문에 영향 없음).
+
+
+검증 결과
+
+
+① recalls 행 수: 17행(4개 차종만 커버) → 227행(27개 차종 전체 커버) — 약 13배 증가
+② 에피소드 상태 분포(기준월 2026-06, 57개 base_model 카드): recalled 4→15(+11: CARNIVAL·ELANTRA·EV9·IONIQ 5·K5·KONA·SANTA CRUZ·SONATA·SORENTO·SPORTAGE·TELLURIDE 추가) / active 1→1(NIRO, 불변) / rising 1→1(IONIQ 9, 불변) / new 51→40(-11). watched_models(78)·us_recalled_kr_unremediated(14)는 recalls 테이블과 무관해 불변.
+  부수 발견: new_alarms_this_week이 1→0으로 바뀜 — 원인은 캠페인 25V426000이 kr_us_gap.csv에서는 "NIRO"로 단순 기록돼 있었으나 recalls_hk_by_vehicle.csv에는 실제로 "NIRO EV"(별도 base_model, normalize_model이 EV 접미어는 벗기지 않음)로 정확히 기록돼 있어, plain NIRO가 이제 이 리콜의 영향을 받지 않는 것으로 정정됨(NIRO가 5월·6월 모두 active로 계산돼 "신규" 아님으로 바뀜) — 더 정확해진 결과.
+③ 차종별 리콜 보유 수 상위 10(recalls 테이블, distinct campaign count): SANTA FE 18 / TELLURIDE 16 / PALISADE 16 / TUCSON 15 / IONIQ 5 14 / ELANTRA 14 / SORENTO 13 / KONA 12 / SPORTAGE 11 / SONATA 10 — 내 차 페이지 도메인 상태 칠하기의 눈검증 기준으로 사용.

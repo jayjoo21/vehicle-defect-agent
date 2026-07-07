@@ -1,17 +1,24 @@
 """DB 스키마 초기화 + 목데이터 적재.
 
-스펙 9절 원칙: data/processed/의 실제 산출물만 변환한다 (지어내지 않음).
-사용하는 실측 파일 4종:
+스펙 9절 원칙: data/processed/·data/recalls/의 실제 산출물만 변환한다 (지어내지 않음).
+사용하는 실측 파일:
   - data/processed/b1_signals.csv           → signals
-  - data/processed/report_24V757000.md      → reports, recalls(EV9 24V757000), signal_states
-  - data/processed/kr_us_gap.csv            → recalls, kr_us_gap
+  - data/processed/report_24V757000.md      → reports, signal_states
+  - data/recalls/recalls_hk_by_vehicle.csv  → recalls (정본, 5단계 착수 전 재구축)
+  - data/processed/kr_us_gap.csv            → kr_us_gap (한미 시차 전용, recalls와는 별개)
   - data/processed/llm_struct_test_results.jsonl → complaints (+ signals.top_symptom 보강)
+
+recalls 재구축 이력: 원래 kr_us_gap.csv(한미 매칭용, 27행)로 recalls를 채웠으나 이 파일은
+캠페인당 "조회한 차종" 하나만 기록하는 구조라 같은 캠페인이 실제로 적용되는 다른 차종이
+누락되는 버그가 있었다(예: 24V204000이 IONIQ 6로만 기록돼 IONIQ 5 리콜이 통째로 빠짐).
+recalls_hk_by_vehicle.csv(현대·기아 27개 차종 × 캠페인 전체 쌍, 377행)를 정본으로 재적재해
+해결 — EV9 24V757000도 이 파일에 이미 있어 별도 하드코딩 불필요해짐.
 
 llm_struct_test_results.jsonl에는 model/year/date가 없어(odino만 있음),
 같은 ODINO의 실측 메타데이터(MODELTXT/YEARTXT/LDATE)를 data/processed/hk_electrical_recent_full.csv에서
 조회해 조인한다 — 값을 지어내는 것이 아니라 동일 레코드의 이미 검증된 실측 필드를 가져오는 것.
 
-EV6 데모 시나리오(수동 seed)는 seed_manual.py로 분리되어 있으며, 실제 확인된 레코드가 없어 현재는 빈 상태.
+EV6·IONIQ 5 조사 채팅 데모용 추가 불만 레코드는 seed_manual.py로 분리.
 """
 import json
 import sys
@@ -31,6 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 B1_SIGNALS_PATH = REPO_ROOT / "data/processed/b1_signals.csv"
 REPORT_EV9_PATH = REPO_ROOT / "data/processed/report_24V757000.md"
 KR_US_GAP_PATH = REPO_ROOT / "data/processed/kr_us_gap.csv"
+RECALLS_HK_PATH = REPO_ROOT / "data/recalls/recalls_hk_by_vehicle.csv"
 STRUCT_JSONL_PATH = REPO_ROOT / "data/processed/llm_struct_test_results.jsonl"
 COMPLAINT_META_PATH = REPO_ROOT / "data/processed/hk_electrical_recent_full.csv"
 
@@ -208,46 +216,25 @@ def seed_signals(conn, b1_df: pd.DataFrame, recall_lookup: dict, symptom_lookup:
 
 
 # ---------------------------------------------------------------------------
-# recalls: kr_us_gap.csv 매칭 행(country=US) + EV9 24V757000(report_24V757000.md, country=US)
+# recalls: recalls_hk_by_vehicle.csv 전량(정본) — 차종(base_model)×캠페인 쌍마다 한 행.
+# kr_us_gap.csv는 한미 시차 분석 전용(별도 테이블)이며 recalls를 채우는 데는 더 이상 쓰지 않는다.
 # ---------------------------------------------------------------------------
 
-def seed_recalls(conn, gap_df: pd.DataFrame):
-    matched = gap_df[gap_df["미국_캠페인번호"].notna()].drop_duplicates(subset="미국_캠페인번호")
-    rows = []
-    for _, r in matched.iterrows():
-        cause = r["한국_원인"] if pd.notna(r.get("한국_원인")) else ""
-        symptom = r["한국_증상"] if pd.notna(r.get("한국_증상")) else ""
-        summary = " / ".join(x for x in [cause, symptom] if x) or None
-        rows.append(
-            (
-                r["미국_캠페인번호"],
-                "US",
-                r["base_model"],
-                r["미국_접수일"],
-                r["미국_컴포넌트"],
-                summary,
-                r["한국_발표일"],
-            )
-        )
+def load_recalls_hk() -> pd.DataFrame:
+    df = pd.read_csv(RECALLS_HK_PATH, dtype=str, encoding="utf-8-sig")
+    df["base_model"] = df["Model"].apply(normalize_model)
+    return df.drop_duplicates(subset=["base_model", "NHTSACampaignNumber"])
+
+
+def seed_recalls(conn, recalls_df: pd.DataFrame):
+    rows = [
+        (r["NHTSACampaignNumber"], "US", r["base_model"], r["report_date_iso"], r["Component"], r["Summary"], None)
+        for _, r in recalls_df.iterrows()
+    ]
     conn.executemany(
-        """INSERT OR IGNORE INTO recalls (campaign, country, model, report_date, component, summary, kr_announce_date)
+        """INSERT INTO recalls (campaign, country, model, report_date, component, summary, kr_announce_date)
            VALUES (?, ?, ?, ?, ?, ?, ?)""",
         rows,
-    )
-
-    # EV9 24V757000 — report_24V757000.md 실측 (kr_us_gap.csv에는 이 캠페인의 한국 매칭 행이 없음)
-    conn.execute(
-        """INSERT OR IGNORE INTO recalls (campaign, country, model, report_date, component, summary, kr_announce_date)
-           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-        (
-            "24V757000",
-            "US",
-            "EV9",
-            "2024-10-10",
-            "ELECTRICAL SYSTEM: INSTRUMENT CLUSTER/PANEL",
-            "주행 중 계기판(속도계·방향지시등 표시) 화면이 갑자기 꺼지는 결함으로 인한 리콜 (report_24V757000.md)",
-            None,
-        ),
     )
     conn.commit()
 
@@ -321,7 +308,7 @@ def seed():
     conn.commit()
 
     gap_df = load_gap_df()
-    recall_lookup = build_recall_lookup(gap_df)
+    recall_lookup = build_recall_lookup(gap_df)  # signals 셀 상태 전용 (kr_us_gap.csv 기반, recalls 테이블과 무관)
 
     struct_complaints = load_struct_complaints()
     seed_complaints(conn, struct_complaints)
@@ -331,7 +318,8 @@ def seed():
     b1_df = load_b1_signals()
     id_map = seed_signals(conn, b1_df, recall_lookup, symptom_lookup)
 
-    seed_recalls(conn, gap_df)
+    recalls_df = load_recalls_hk()
+    seed_recalls(conn, recalls_df)
     seed_kr_us_gap(conn, gap_df)
 
     ev9_signal_id = id_map[("EV9", "2024-09")]

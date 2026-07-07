@@ -12,8 +12,12 @@ CREATE TABLE IF NOT EXISTS complaints (
     severity TEXT
 );
 
+-- campaign은 PK가 아님: 같은 US 캠페인이 여러 차종에 공통 적용되는 실제 사례가 있어
+-- (예: 24V204000이 IONIQ 5·IONIQ 6·Genesis GV60/GV70/G80에 공통 적용), campaign을
+-- 유일키로 두면 첫 번째 매칭 차종을 제외한 나머지 차종의 리콜 보유 사실이 유실된다.
 CREATE TABLE IF NOT EXISTS recalls (
-    campaign TEXT PRIMARY KEY,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign TEXT NOT NULL,
     country TEXT NOT NULL,
     model TEXT NOT NULL,
     report_date TEXT NOT NULL,
