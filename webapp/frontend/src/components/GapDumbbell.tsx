@@ -31,7 +31,7 @@ export default function GapDumbbell({ data }: { data: GapResponse }) {
       </h3>
       <p className="mb-4 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
         <span style={{ color: 'var(--color-navy)' }}>●</span> 미국 접수 — <span style={{ color: '#DC2626' }}>●</span> 한국 발표 · 회색 점 =
-        한국 시정 시작일 미기재(KPI &ldquo;미조치&rdquo;와 연결)
+        한국 발표는 확인됐으나 시정 개시일 정보가 없는 건(KPI &ldquo;한국 시정 개시일 미확인&rdquo;과 연결)
       </p>
 
       <div className="flex flex-col gap-4">

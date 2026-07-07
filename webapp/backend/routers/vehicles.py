@@ -35,13 +35,16 @@ def get_vehicle_map(model: str, year: str, conn=Depends(get_db)):
     domain_evidence = {d: None for d in DOMAINS}
 
     for r in recalls:
-        domain = classify_domain(r["component"]) or classify_domain(r["summary"])
+        # component 라벨은 부정확/포괄적일 수 있어(예: EV6 24V867000의 component는 "12V/24V/48V
+        # BATTERY"뿐이지만 실제 원인은 summary에만 있는 ICCU) 두 필드를 합쳐서 한 번에 매칭한다 —
+        # component만 보고 먼저 매칭되면 summary의 더 구체적인 키워드를 영영 못 보는 문제가 있었음.
+        domain = classify_domain(f"{r['component'] or ''} {r['summary'] or ''}")
         if domain:
             domain_state[domain] = "recalled"
             domain_evidence[domain] = {"type": "recall", "campaign": r["campaign"], "report_date": r["report_date"]}
 
     for c in complaints_source:
-        domain = classify_domain(c["part_category"]) or classify_domain(c["symptom"])
+        domain = classify_domain(f"{c['part_category'] or ''} {c['symptom'] or ''}")
         if domain and domain_state[domain] == "new":
             domain_state[domain] = "active"
             domain_evidence[domain] = {"type": "complaint", "odino": c["odino"], "text": c["text"]}

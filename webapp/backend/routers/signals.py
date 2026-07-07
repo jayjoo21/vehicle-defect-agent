@@ -60,7 +60,9 @@ def get_summary(conn=Depends(get_db)):
         "us_recalled_kr_unremediated": us_unremediated,
         "data_as_of_month": latest_month,
         "note": "new_alarms_this_week은 월 단위 데이터의 근사치입니다 (주간 데이터 없음). "
-        "active/rising/recalled는 v0 잠정 에피소드 규칙(engine/episode.py)으로 계산됩니다.",
+        "active/rising/recalled는 v0 잠정 에피소드 규칙(engine/episode.py)으로 계산됩니다. "
+        "us_recalled_kr_unremediated는 한국 발표는 확인됐으나 시정 개시일이 기록되지 않은 건수이며, "
+        "한국 발표 자체가 없는 경우는 포함하지 않습니다(현재 데이터 범위에는 그런 사례가 없음).",
     }
 
 
