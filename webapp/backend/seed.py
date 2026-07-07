@@ -38,6 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 B1_SIGNALS_PATH = REPO_ROOT / "data/processed/b1_signals.csv"
 REPORT_EV9_PATH = REPO_ROOT / "data/processed/report_24V757000.md"
 KR_US_GAP_PATH = REPO_ROOT / "data/processed/kr_us_gap.csv"
+KR_US_GAP_V2_PATH = REPO_ROOT / "data/processed/kr_us_gap_v2.csv"
 RECALLS_HK_PATH = REPO_ROOT / "data/recalls/recalls_hk_by_vehicle.csv"
 STRUCT_JSONL_PATH = REPO_ROOT / "data/processed/llm_struct_test_results.jsonl"
 COMPLAINT_META_PATH = REPO_ROOT / "data/processed/hk_electrical_recent_full.csv"
@@ -239,28 +240,54 @@ def seed_recalls(conn, recalls_df: pd.DataFrame):
     conn.commit()
 
 
-def seed_kr_us_gap(conn, gap_df: pd.DataFrame):
-    rows = []
-    for _, r in gap_df.iterrows():
-        campaign = r["미국_캠페인번호"] if pd.notna(r.get("미국_캠페인번호")) else r["한국_차종_원문"]
-        gap_days = None
-        if pd.notna(r.get("시차_일")):
-            try:
-                gap_days = int(float(r["시차_일"]))
-            except ValueError:
-                gap_days = None
-        rows.append(
-            (
-                campaign,
-                r["미국_접수일"] if pd.notna(r.get("미국_접수일")) else None,
-                r["한국_발표일"] if pd.notna(r.get("한국_발표일")) else None,
-                r["한국_시정시작일"] if pd.notna(r.get("한국_시정시작일")) else None,
-                gap_days,
-                r["분류"],
-            )
-        )
+def _defect_summary(r: dict) -> str | None:
+    """한국_원인 > 한국_증상 > 미국_컴포넌트(영문 원문) 순으로 사용. 없는 값을 지어내지 않는다."""
+    for key in ("한국_원인", "한국_증상"):
+        v = r.get(key)
+        if v and pd.notna(v) and str(v).strip():
+            return str(v).strip()
+    v = r.get("미국_컴포넌트")
+    if v and pd.notna(v) and str(v).strip():
+        return str(v).strip()
+    return None
+
+
+def _gap_row_tuple(r: dict, base_model: str, date_basis: str) -> tuple:
+    campaign = r["미국_캠페인번호"] if pd.notna(r.get("미국_캠페인번호")) else r["한국_차종_원문"]
+    gap_days = None
+    if pd.notna(r.get("시차_일")):
+        try:
+            gap_days = int(float(r["시차_일"]))
+        except ValueError:
+            gap_days = None
+    return (
+        campaign,
+        base_model,
+        _defect_summary(r),
+        date_basis,
+        r["미국_접수일"] if pd.notna(r.get("미국_접수일")) else None,
+        r["한국_발표일"] if pd.notna(r.get("한국_발표일")) else None,
+        r["한국_시정시작일"] if pd.notna(r.get("한국_시정시작일")) else None,
+        gap_days,
+        r["분류"],
+    )
+
+
+def load_gap_v2_extra_rows() -> list[dict]:
+    """kr_us_gap_v2.csv(KOTSA 기반)에서 kr_us_gap.csv엔 없는 EV9 24V757000(계기판/IEB 리콜, 대시보드
+    덤벨차트 큐레이션 8건 중 하나로 명시 요청됨)만 선별 추가한다. date_basis가 '보도자료'가 아닌
+    'KOTSA리콜개시일'임을 별도 표기(CLAUDE.md Task 6 원칙: 두 기준일을 반드시 구분)."""
+    df = pd.read_csv(KR_US_GAP_V2_PATH, dtype=str, encoding="utf-8-sig")
+    extra = df[(df["미국_캠페인번호"] == "24V757000") & (df["모델_영문"] == "EV9")]
+    return extra.to_dict("records")
+
+
+def seed_kr_us_gap(conn, gap_df: pd.DataFrame, extra_rows: list[dict]):
+    rows = [_gap_row_tuple(r, r["base_model"], "보도자료") for _, r in gap_df.iterrows()]
+    rows += [_gap_row_tuple(r, normalize_model(r["모델_영문"]), "KOTSA리콜개시일") for r in extra_rows]
     conn.executemany(
-        "INSERT INTO kr_us_gap (campaign, us_date, kr_date, kr_start_date, gap_days, note) VALUES (?, ?, ?, ?, ?, ?)",
+        """INSERT INTO kr_us_gap (campaign, model, defect_summary, date_basis, us_date, kr_date, kr_start_date, gap_days, note)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         rows,
     )
     conn.commit()
@@ -320,7 +347,8 @@ def seed():
 
     recalls_df = load_recalls_hk()
     seed_recalls(conn, recalls_df)
-    seed_kr_us_gap(conn, gap_df)
+    gap_v2_extra = load_gap_v2_extra_rows()
+    seed_kr_us_gap(conn, gap_df, gap_v2_extra)
 
     ev9_signal_id = id_map[("EV9", "2024-09")]
     report_id, report_len = seed_reports(conn, ev9_signal_id)
@@ -343,7 +371,7 @@ def print_integrity_report(conn, ev9_report_len: int):
     n_gap = conn.execute("SELECT COUNT(*) FROM kr_us_gap").fetchone()[0]
     santafe = conn.execute("SELECT * FROM kr_us_gap WHERE gap_days = 152").fetchall()
     tucson = conn.execute("SELECT * FROM kr_us_gap WHERE gap_days = 8").fetchall()
-    print(f"\n  kr_us_gap: {n_gap}행 (원본 kr_us_gap.csv 27행 기대)")
+    print(f"\n  kr_us_gap: {n_gap}행 (원본 kr_us_gap.csv 27행 + kr_us_gap_v2.csv 큐레이션 EV9 1행 기대)")
     print(f"    싼타페 +152일 포함: {'O' if santafe else 'X'}")
     print(f"    투싼 +8일 포함: {'O' if tucson else 'X'}")
 

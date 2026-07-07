@@ -1,6 +1,7 @@
 import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
 import KpiStrip from '../components/KpiStrip'
+import HeroSignalCard from '../components/HeroSignalCard'
 import SignalCardGrid from '../components/SignalCardGrid'
 import GapDumbbell from '../components/GapDumbbell'
 import Heatmap from '../components/Heatmap'
@@ -23,7 +24,18 @@ export default function Dashboard() {
         상황판
       </h1>
 
-      {summary.data ? <KpiStrip summary={summary.data} /> : <SkeletonBlock height={100} />}
+      {summary.data?.hero && <HeroSignalCard hero={summary.data.hero} />}
+
+      {summary.data ? (
+        <div>
+          <KpiStrip summary={summary.data} />
+          <p className="mt-2 text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
+            * 한국 시정 개시일 미확인: 한국 발표는 확인됐으나 시정 개시 정보가 없는 건
+          </p>
+        </div>
+      ) : (
+        <SkeletonBlock height={100} />
+      )}
 
       {signals.data ? <SignalCardGrid cards={signals.data.signals} /> : <SkeletonBlock height={200} />}
 

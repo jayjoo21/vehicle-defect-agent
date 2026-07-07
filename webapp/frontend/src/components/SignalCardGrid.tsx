@@ -5,28 +5,39 @@ import type { SignalState } from '../lib/tokens'
 import { stateLabel } from '../lib/tokens'
 import SignalCard from './SignalCard'
 
-const TABS: { key: SignalState | 'all'; label: string }[] = [
+type TabKey = SignalState | 'all' | 'focus'
+
+// active→rising→recalled→new: 지금 당장 봐야 할 것(아직 리콜 없는 급증)을 이미 대응 중인 리콜보다 앞에 둔다.
+// (engine/episode.py DASHBOARD_PRIORITY와 동일 순서 — resolved는 에피소드 상태에 없어 목록에서 제외)
+const TABS: { key: TabKey; label: string }[] = [
+  { key: 'focus', label: '주목 필요' },
   { key: 'all', label: '전체' },
   { key: 'rising', label: stateLabel.rising },
   { key: 'active', label: stateLabel.active },
   { key: 'recalled', label: stateLabel.recalled },
-  { key: 'resolved', label: stateLabel.resolved },
 ]
 
 const STATE_PRIORITY: Record<SignalState, number> = {
-  recalled: 4,
-  active: 3,
-  rising: 2,
+  active: 4,
+  rising: 3,
+  recalled: 2,
   new: 1,
   resolved: 0,
 }
 
 export default function SignalCardGrid({ cards }: { cards: SignalCardData[] }) {
-  const [tab, setTab] = useState<SignalState | 'all'>('all')
+  const [tab, setTab] = useState<TabKey>('focus')
   const reduceMotion = useReducedMotion()
 
   const filtered = useMemo(() => {
-    const base = tab === 'all' ? cards.filter((c) => c.state !== 'new') : cards.filter((c) => c.state === tab)
+    let base: SignalCardData[]
+    if (tab === 'focus') {
+      base = cards.filter((c) => c.state === 'active' || c.state === 'rising' || (c.state === 'recalled' && c.recall_recent))
+    } else if (tab === 'all') {
+      base = cards.filter((c) => c.state !== 'new')
+    } else {
+      base = cards.filter((c) => c.state === tab)
+    }
     return [...base].sort((a, b) => STATE_PRIORITY[b.state] - STATE_PRIORITY[a.state])
   }, [cards, tab])
 

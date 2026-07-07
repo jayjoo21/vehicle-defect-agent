@@ -6,6 +6,7 @@ export interface Summary {
   new_alarms_this_week: number
   us_recalled_kr_unremediated: number
   data_as_of_month: string
+  hero: HeroCardData | null
   note: string
 }
 
@@ -17,6 +18,11 @@ export interface SignalCardData {
   sparkline: number[]
   month: string
   report_id: number | null
+  recall_recent: boolean
+}
+
+export interface HeroCardData extends SignalCardData {
+  quote: { odino: string; text: string } | null
 }
 
 export interface SignalsResponse {
@@ -44,6 +50,9 @@ export interface SignalDetail {
 export interface GapRow {
   id: number
   campaign: string
+  model: string | null
+  defect_summary: string | null
+  date_basis: string | null
   us_date: string | null
   kr_date: string | null
   kr_start_date: string | null
@@ -53,6 +62,8 @@ export interface GapRow {
 
 export interface GapResponse {
   gap: GapRow[]
+  excluded_count: number
+  excluded_note: string
 }
 
 export interface HeatmapCell {
@@ -111,12 +122,16 @@ export interface ChatStep {
   title: string
   result: string
   status: 'done' | 'active'
+  tool: string
+  duration_ms: number
 }
 
 export interface ChatSource {
   type: 'odino' | 'campaign'
   id: string
   text: string | null
+  part_category: string | null
+  symptom: string | null
 }
 
 export interface ChatAnswer {

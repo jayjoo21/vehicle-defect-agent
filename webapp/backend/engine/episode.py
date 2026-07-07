@@ -43,6 +43,13 @@ RISING_LOOKBACK_MONTHS = 2
 
 RECALL_WINDOW_DAYS = 365
 
+# 대시보드 카드 정렬 우선순위 (5.5단계). 셀 상태 STATE_PRIORITY(engine/state.py, 리콜중이 최상위)와는
+# 목적이 다르다 — 이건 "지금 당장 봐야 할 것"을 앞에 두는 순서라 이미 리콜로 대응 중인 결함(recalled)보다
+# 아직 리콜 없이 진행 중인 급증(active/rising)을 우선한다. resolved는 에피소드 상태에 없으므로 안 쓰임.
+DASHBOARD_PRIORITY = {"active": 4, "rising": 3, "recalled": 2, "new": 1, "resolved": 0}
+
+RECALL_RECENT_WINDOW_DAYS = 90
+
 
 def _fired(count: float, baseline: float | None) -> bool:
     return bool(baseline) and count >= FIRE_MIN_COUNT and count >= FIRE_MULTIPLIER * baseline

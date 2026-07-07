@@ -3,6 +3,7 @@ import { FileText } from 'lucide-react'
 import type { ChatAnswer } from '../lib/types'
 import { renderMarkdown } from '../lib/markdown'
 import { DISCLAIMER } from '../lib/tokens'
+import { koGloss } from '../lib/partCategory'
 
 export default function ChatAnswerCard({ answer }: { answer: ChatAnswer }) {
   const quoted = answer.sources.filter((s) => s.text)
@@ -17,17 +18,25 @@ export default function ChatAnswerCard({ answer }: { answer: ChatAnswer }) {
             원문 인용 {quoted.length}건
           </p>
           <ul className="flex flex-col gap-2">
-            {quoted.map((s) => (
-              <li key={s.id} className="text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-                <span
-                  className="mr-1.5 rounded px-1.5 py-0.5 font-mono"
-                  style={{ backgroundColor: 'var(--color-bg-subtle)' }}
-                >
-                  ODINO {s.id}
-                </span>
-                &ldquo;{s.text}&rdquo;
-              </li>
-            ))}
+            {quoted.map((s) => {
+              const gloss = koGloss(s.part_category, s.symptom)
+              return (
+                <li key={s.id} className="text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+                  <span
+                    className="mr-1.5 rounded px-1.5 py-0.5 font-mono"
+                    style={{ backgroundColor: 'var(--color-bg-subtle)' }}
+                  >
+                    ODINO {s.id}
+                  </span>
+                  &ldquo;{s.text}&rdquo;
+                  {gloss && (
+                    <span className="ml-1.5" style={{ color: 'var(--color-navy)' }}>
+                      — {gloss}
+                    </span>
+                  )}
+                </li>
+              )
+            })}
           </ul>
         </div>
       )}

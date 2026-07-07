@@ -2,19 +2,19 @@ import { useMemo } from 'react'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { GapResponse, GapRow } from '../lib/types'
 
-const MAX_ROWS = 8
-
 function dayOffset(iso: string, epoch: number): number {
   return (new Date(iso).getTime() - epoch) / 86_400_000
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
 export default function GapDumbbell({ data }: { data: GapResponse }) {
   const reduceMotion = useReducedMotion()
 
-  const rows = useMemo(() => {
-    const matched = data.gap.filter((r): r is GapRow & { us_date: string; kr_date: string } => !!r.us_date && !!r.kr_date)
-    return [...matched].sort((a, b) => b.kr_date.localeCompare(a.kr_date)).slice(0, MAX_ROWS)
-  }, [data.gap])
+  // 백엔드(get_gap)가 이미 |gap_days|<=365 필터 + 캠페인당 대표 1행 dedup을 적용해 반환한다.
+  const rows = data.gap as (GapRow & { us_date: string; kr_date: string })[]
 
   const { epoch, span } = useMemo(() => {
     if (rows.length === 0) return { epoch: 0, span: 1 }
@@ -31,7 +31,7 @@ export default function GapDumbbell({ data }: { data: GapResponse }) {
       </h3>
       <p className="mb-4 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
         <span style={{ color: 'var(--color-navy)' }}>●</span> 미국 접수 — <span style={{ color: '#DC2626' }}>●</span> 한국 발표 · 회색 점 =
-        한국 발표는 확인됐으나 시정 개시일 정보가 없는 건(KPI &ldquo;한국 시정 개시일 미확인&rdquo;과 연결)
+        한국 시정 개시일 미확인*
       </p>
 
       <div className="flex flex-col gap-4">
@@ -40,12 +40,15 @@ export default function GapDumbbell({ data }: { data: GapResponse }) {
           const krPct = (dayOffset(r.kr_date, epoch) / span) * 100
           const left = Math.min(usPct, krPct)
           const width = Math.abs(krPct - usPct)
-          const highlighted = r.gap_days === 152
+          const highlighted = r.campaign === '25V808000'
+          const label = r.model && r.defect_summary ? `${r.model} · ${truncate(r.defect_summary, 22)}` : r.campaign
           return (
             <div key={`${r.campaign}-${r.id}`} className={highlighted ? 'rounded-lg p-2' : ''} style={highlighted ? { backgroundColor: 'var(--color-navy-soft)' } : undefined}>
-              <div className="mb-1 flex items-center justify-between text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-                <span className="font-mono">{r.campaign}</span>
-                <span className="font-medium" style={{ color: r.gap_days && r.gap_days < 0 ? '#DC2626' : 'var(--color-navy)' }}>
+              <div className="mb-1 flex items-center justify-between gap-2 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+                <span className="truncate" style={{ color: 'var(--color-ink)' }} title={r.defect_summary ?? undefined}>
+                  {label} <span className="font-mono" style={{ color: 'var(--color-ink-muted)' }}>{r.campaign}</span>
+                </span>
+                <span className="shrink-0 font-medium" style={{ color: r.gap_days && r.gap_days < 0 ? '#DC2626' : 'var(--color-navy)' }}>
                   {r.gap_days !== null ? `${r.gap_days > 0 ? '+' : ''}${r.gap_days}일` : '-'}
                 </span>
               </div>
@@ -79,6 +82,10 @@ export default function GapDumbbell({ data }: { data: GapResponse }) {
           )
         })}
       </div>
+
+      <p className="mt-4 border-t pt-3 text-[11px]" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
+        {data.excluded_note} · * 한국 발표는 확인됐으나 시정 개시 정보가 없는 건
+      </p>
     </div>
   )
 }

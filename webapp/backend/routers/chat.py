@@ -5,10 +5,16 @@
 타임라인 단계(차종 인식·이력 조회·리콜 대조 등)의 수치는 전부 이 함수가 DB에서
 직접 조회한 실측값이며, llm/mock_responses의 markdown_template에도 그 실측값만
 채워 넣는다 — 지어낸 수치 없음.
+
+5.5단계: 각 단계에 tool(도구 칩)과 duration_ms(DB 조회·판정에 걸린 실측 시간, 이후의
+UI 페이싱용 sleep은 제외)를 추가했다. 인용 소스에는 part_category/symptom(이미
+struct_verify로 환각 검증된 구조화 필드)을 함께 실어 프론트가 원문 옆에 한국어 한 줄
+요약을 병기할 수 있게 한다 — 별도 번역을 새로 지어내지 않고 기존 검증된 필드를 재사용.
 """
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, Request
@@ -32,6 +38,11 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _clean_quote(text: str | None) -> str:
+    """NHTSA 원문 텍스트의 개행·중복 공백을 정리한다(내용 변경 없음, 표시용 정리만)."""
+    return " ".join((text or "").split())
+
+
 def detect_scenario(message: str) -> str:
     upper = message.upper()
     if "EV6" in upper and any(k in message for k in ["계기판", "깜빡", "꺼짐", "블랙아웃"]) or ("EV6" in upper and "CLUSTER" in upper):
@@ -49,19 +60,37 @@ def _is_iccu_recall(row) -> bool:
     return "ICCU" in (row["summary"] or "").upper()
 
 
+def _complaint_source(r) -> dict:
+    return {
+        "type": "odino",
+        "id": r["odino"],
+        "text": _clean_quote(r["text"]),
+        "part_category": r["part_category"],
+        "symptom": r["symptom"],
+    }
+
+
 async def _ev6_cluster_flow(conn, llm: LLM):
-    yield _sse("step", {"id": 1, "icon": "car", "title": "차종 인식", "result": "KIA EV6", "status": "done"})
+    t0 = time.perf_counter()
+    yield _sse(
+        "step",
+        {"id": 1, "icon": "car", "title": "차종 인식", "result": "KIA EV6", "status": "done", "tool": "규칙 매칭",
+         "duration_ms": round((time.perf_counter() - t0) * 1000)},
+    )
     await asyncio.sleep(STEP_DELAY)
 
+    t0 = time.perf_counter()
     recent_count = conn.execute(
         "SELECT COUNT(*) FROM complaints WHERE model='EV6' AND date >= ?", (RECENT_CUTOFF,)
     ).fetchone()[0]
     yield _sse(
         "step",
-        {"id": 2, "icon": "search", "title": "이력 조회", "result": f"최근 90일 신고 {recent_count}건", "status": "done"},
+        {"id": 2, "icon": "search", "title": "이력 조회", "result": f"최근 90일 신고 {recent_count}건", "status": "done",
+         "tool": "DB 조회", "duration_ms": round((time.perf_counter() - t0) * 1000)},
     )
     await asyncio.sleep(STEP_DELAY)
 
+    t0 = time.perf_counter()
     all_recalls = conn.execute(
         "SELECT campaign, summary FROM recalls WHERE model='EV6' AND country='US' ORDER BY report_date"
     ).fetchall()
@@ -74,12 +103,15 @@ async def _ev6_cluster_flow(conn, llm: LLM):
             "title": "리콜 대조",
             "result": f"ICCU/12V 배터리 리콜 {len(iccu_campaigns)}건 확인 ({'·'.join(iccu_campaigns)})",
             "status": "done",
+            "tool": "DB 조회",
+            "duration_ms": round((time.perf_counter() - t0) * 1000),
         },
     )
     await asyncio.sleep(STEP_DELAY)
 
+    t0 = time.perf_counter()
     cluster_rows = conn.execute(
-        "SELECT odino, date, text FROM complaints WHERE model='EV6' AND part_category='INSTRUMENT_CLUSTER' ORDER BY date"
+        "SELECT odino, date, text, part_category, symptom FROM complaints WHERE model='EV6' AND part_category='INSTRUMENT_CLUSTER' ORDER BY date"
     ).fetchall()
     yield _sse(
         "step",
@@ -89,10 +121,13 @@ async def _ev6_cluster_flow(conn, llm: LLM):
             "title": "유사 증상 검색",
             "result": f"전력손실 없는 순수 계기판 결함 사례 {len(cluster_rows)}건 확인, 모두 최근 90일 밖",
             "status": "done",
+            "tool": "DB 조회",
+            "duration_ms": round((time.perf_counter() - t0) * 1000),
         },
     )
     await asyncio.sleep(STEP_DELAY)
 
+    t0 = time.perf_counter()
     context = {
         "recent_count": recent_count,
         "iccu_campaigns": "·".join(iccu_campaigns),
@@ -102,11 +137,13 @@ async def _ev6_cluster_flow(conn, llm: LLM):
         "cluster_date_2": cluster_rows[1]["date"] if len(cluster_rows) > 1 else "-",
     }
     result = llm.call("answer", "ev6_cluster", context)
-    sources = [{"type": "odino", "id": r["odino"], "text": r["text"]} for r in cluster_rows] + [
-        {"type": "campaign", "id": c, "text": None} for c in iccu_campaigns
+    sources = [_complaint_source(r) for r in cluster_rows] + [
+        {"type": "campaign", "id": c, "text": None, "part_category": None, "symptom": None} for c in iccu_campaigns
     ]
     yield _sse(
-        "step", {"id": 5, "icon": "check-circle", "title": "검수", "result": f"통과 (출처 {len(sources)}건 확인)", "status": "done"}
+        "step",
+        {"id": 5, "icon": "check-circle", "title": "검수", "result": f"통과 (출처 {len(sources)}건 확인)", "status": "done",
+         "tool": "인용 검증", "duration_ms": round((time.perf_counter() - t0) * 1000)},
     )
     await asyncio.sleep(0.2)
 
@@ -114,19 +151,27 @@ async def _ev6_cluster_flow(conn, llm: LLM):
 
 
 async def _ioniq5_charging_flow(conn, llm: LLM):
-    yield _sse("step", {"id": 1, "icon": "car", "title": "차종 인식", "result": "HYUNDAI IONIQ 5", "status": "done"})
+    t0 = time.perf_counter()
+    yield _sse(
+        "step",
+        {"id": 1, "icon": "car", "title": "차종 인식", "result": "HYUNDAI IONIQ 5", "status": "done", "tool": "규칙 매칭",
+         "duration_ms": round((time.perf_counter() - t0) * 1000)},
+    )
     await asyncio.sleep(STEP_DELAY)
 
+    t0 = time.perf_counter()
     recent_rows = conn.execute(
-        "SELECT odino, date, text FROM complaints WHERE model='IONIQ 5' AND date >= ?", (RECENT_CUTOFF,)
+        "SELECT odino, date, text, part_category, symptom FROM complaints WHERE model='IONIQ 5' AND date >= ?", (RECENT_CUTOFF,)
     ).fetchall()
     recent_count = len(recent_rows)
     yield _sse(
         "step",
-        {"id": 2, "icon": "search", "title": "이력 조회", "result": f"최근 90일 신고 {recent_count}건", "status": "done"},
+        {"id": 2, "icon": "search", "title": "이력 조회", "result": f"최근 90일 신고 {recent_count}건", "status": "done",
+         "tool": "DB 조회", "duration_ms": round((time.perf_counter() - t0) * 1000)},
     )
     await asyncio.sleep(STEP_DELAY)
 
+    t0 = time.perf_counter()
     all_recalls = conn.execute(
         "SELECT campaign, summary FROM recalls WHERE model='IONIQ 5' AND country='US' ORDER BY report_date"
     ).fetchall()
@@ -139,10 +184,13 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
             "title": "리콜 대조",
             "result": f"ICCU/충전 리콜 {len(iccu_campaigns)}건 확인 ({'·'.join(iccu_campaigns)})",
             "status": "done",
+            "tool": "DB 조회",
+            "duration_ms": round((time.perf_counter() - t0) * 1000),
         },
     )
     await asyncio.sleep(STEP_DELAY)
 
+    t0 = time.perf_counter()
     keywords = ["ICCU", "12-VOLT", "12V", "CHARGING CONTROL"]
     iccu_hits = [r for r in recent_rows if any(k in (r["text"] or "").upper() for k in keywords)]
     iccu_ratio = round(100 * len(iccu_hits) / recent_count) if recent_count else 0
@@ -154,10 +202,13 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
             "title": "증상 집중도 확인",
             "result": f"최근 90일 신고 중 {len(iccu_hits)}건({iccu_ratio}%)이 ICCU·12V 배터리 증상과 일치",
             "status": "done",
+            "tool": "DB 조회",
+            "duration_ms": round((time.perf_counter() - t0) * 1000),
         },
     )
     await asyncio.sleep(STEP_DELAY)
 
+    t0 = time.perf_counter()
     recurrence_rows = [r for r in iccu_hits if "재발" in r["text"] or "AGAIN" in (r["text"] or "").upper() or "SECOND TIME" in (r["text"] or "").upper() or "RECALL" in (r["text"] or "").upper()]
     top2 = iccu_hits[-2:] if len(iccu_hits) >= 2 else iccu_hits
     recur = recurrence_rows[0] if recurrence_rows else None
@@ -176,11 +227,13 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
     }
     result = llm.call("answer", "ioniq5_charging", context)
     cited = {r["odino"]: r for r in (top2 + ([recur] if recur else []))}
-    sources = [{"type": "odino", "id": o, "text": r["text"]} for o, r in cited.items()] + [
-        {"type": "campaign", "id": c, "text": None} for c in iccu_campaigns
+    sources = [_complaint_source(r) for r in cited.values()] + [
+        {"type": "campaign", "id": c, "text": None, "part_category": None, "symptom": None} for c in iccu_campaigns
     ]
     yield _sse(
-        "step", {"id": 5, "icon": "check-circle", "title": "검수", "result": f"통과 (출처 {len(sources)}건 확인)", "status": "done"}
+        "step",
+        {"id": 5, "icon": "check-circle", "title": "검수", "result": f"통과 (출처 {len(sources)}건 확인)", "status": "done",
+         "tool": "인용 검증", "duration_ms": round((time.perf_counter() - t0) * 1000)},
     )
     await asyncio.sleep(0.2)
 
@@ -188,12 +241,20 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
 
 
 async def _out_of_scope_flow(llm: LLM):
+    t0 = time.perf_counter()
     yield _sse(
-        "step", {"id": 1, "icon": "help-circle", "title": "질문 분류", "result": "현재 데이터 범위 밖 질문으로 판단", "status": "done"}
+        "step",
+        {"id": 1, "icon": "help-circle", "title": "질문 분류", "result": "현재 데이터 범위 밖 질문으로 판단", "status": "done",
+         "tool": "규칙 매칭", "duration_ms": round((time.perf_counter() - t0) * 1000)},
     )
     await asyncio.sleep(STEP_DELAY)
+    t0 = time.perf_counter()
     result = llm.call("answer", "out_of_scope", {})
-    yield _sse("step", {"id": 2, "icon": "check-circle", "title": "검수", "result": "통과 (범위 밖 응답)", "status": "done"})
+    yield _sse(
+        "step",
+        {"id": 2, "icon": "check-circle", "title": "검수", "result": "통과 (범위 밖 응답)", "status": "done",
+         "tool": "인용 검증", "duration_ms": round((time.perf_counter() - t0) * 1000)},
+    )
     await asyncio.sleep(0.2)
     yield _sse("answer", {"markdown": result["markdown"], "sources": [], "report_id": None})
 

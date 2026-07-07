@@ -58,6 +58,9 @@ CREATE TABLE IF NOT EXISTS reports (
 CREATE TABLE IF NOT EXISTS kr_us_gap (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     campaign TEXT NOT NULL,
+    model TEXT,
+    defect_summary TEXT,
+    date_basis TEXT,
     us_date TEXT,
     kr_date TEXT,
     kr_start_date TEXT,

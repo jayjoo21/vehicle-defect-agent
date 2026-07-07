@@ -2,14 +2,14 @@ import { useNavigate } from 'react-router-dom'
 import { MessageCircle } from 'lucide-react'
 import type { VehicleDomain } from '../lib/types'
 import { stateColor, stateLabel } from '../lib/tokens'
-import { HOTSPOTS } from '../lib/hotspots'
+import { HOTSPOT_LABELS } from '../lib/hotspots'
 import Sparkline from './Sparkline'
 
 export default function DomainDetailCard({ domain, model }: { domain: VehicleDomain; model: string }) {
   const navigate = useNavigate()
   const color = stateColor[domain.state]
   const quote = domain.evidence?.type === 'complaint' ? domain.evidence.text : null
-  const label = HOTSPOTS.find((h) => h.domain === domain.domain)?.label ?? domain.domain
+  const label = HOTSPOT_LABELS[domain.domain] ?? domain.domain
 
   function investigate() {
     navigate(`/chat?q=${encodeURIComponent(`내 차 ${model}인데 ${label} 관련 증상이 있어요`)}`)

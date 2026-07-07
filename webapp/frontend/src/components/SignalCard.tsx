@@ -24,9 +24,11 @@ export default function SignalCard({ card }: { card: SignalCardData }) {
         </span>
       </div>
 
-      <p className="min-h-[20px] text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
-        {card.top_symptom ?? '대표 증상 미확인 (표본 부족)'}
-      </p>
+      {card.top_symptom && (
+        <p className="text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
+          {card.top_symptom}
+        </p>
+      )}
 
       <div className="flex items-end justify-between">
         <div>
@@ -40,7 +42,7 @@ export default function SignalCard({ card }: { card: SignalCardData }) {
         <Sparkline values={card.sparkline} color={color} />
       </div>
 
-      {card.report_id ? (
+      {card.report_id != null && (
         <Link
           to={`/reports/${card.report_id}`}
           className="mt-1 inline-flex items-center gap-1 text-[13px] font-medium"
@@ -49,10 +51,6 @@ export default function SignalCard({ card }: { card: SignalCardData }) {
           <FileText size={14} strokeWidth={1.5} />
           리포트 보기
         </Link>
-      ) : (
-        <span className="mt-1 text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
-          리포트 없음
-        </span>
       )}
     </div>
   )

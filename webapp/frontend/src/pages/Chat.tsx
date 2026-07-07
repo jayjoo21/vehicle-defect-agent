@@ -44,65 +44,56 @@ export default function Chat() {
   }
 
   return (
-    <div>
+    <div className="flex h-full flex-col">
       <h1 className="mb-6 text-2xl font-semibold" style={{ color: 'var(--color-navy)' }}>
         조사 채팅
       </h1>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_320px]">
-        <div className="flex flex-col gap-4">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              ask(input)
-            }}
-            className="flex gap-2"
-          >
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              placeholder="내 차 EV6인데 계기판이 깜빡여요"
-              className="flex-1 rounded-lg border px-4 py-2.5 text-sm outline-none"
-              style={{ borderColor: 'var(--color-border)' }}
-            />
-            <button
-              type="submit"
-              disabled={turn?.pending}
-              className="flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
-              style={{ backgroundColor: 'var(--color-navy)' }}
-            >
-              <Send size={15} strokeWidth={1.5} />
-              전송
-            </button>
-          </form>
+      <div className="flex flex-1 flex-col gap-4">
+        {!turn && (
+          <p className="rounded-xl border p-6 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
+            차종명과 증상을 함께 입력해 보세요. 예: &ldquo;내 차 EV6인데 계기판이 깜빡여요&rdquo;, &ldquo;아이오닉5 충전 중에 12V 배터리
+            경고가 떠요&rdquo;
+          </p>
+        )}
 
-          {!turn && (
-            <p className="rounded-xl border p-6 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
-              차종명과 증상을 함께 입력해 보세요. 예: &ldquo;내 차 EV6인데 계기판이 깜빡여요&rdquo;, &ldquo;아이오닉5 충전 중에 12V 배터리
-              경고가 떠요&rdquo;
-            </p>
-          )}
-
-          {turn && (
-            <div className="flex flex-col gap-3">
-              <div className="self-end rounded-xl px-4 py-2.5 text-sm text-white" style={{ backgroundColor: 'var(--color-navy)' }}>
-                {turn.question}
-              </div>
-              {turn.error && <p className="text-sm text-red-600">오류: {turn.error}</p>}
-              {turn.answer && <ChatAnswerCard answer={turn.answer} />}
+        {turn && (
+          <div className="flex flex-col gap-3">
+            <div className="self-end rounded-xl px-4 py-2.5 text-sm text-white" style={{ backgroundColor: 'var(--color-navy)' }}>
+              {turn.question}
             </div>
-          )}
-        </div>
-
-        <aside className="lg:sticky lg:top-6 lg:self-start">
-          <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
-            <h2 className="mb-4 text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
-              조사 타임라인
-            </h2>
-            <InvestigationTimeline steps={turn?.steps ?? []} pending={turn?.pending ?? false} />
+            <InvestigationTimeline steps={turn.steps} pending={turn.pending} />
+            {turn.error && <p className="text-sm text-red-600">오류: {turn.error}</p>}
+            {turn.answer && <ChatAnswerCard answer={turn.answer} />}
           </div>
-        </aside>
+        )}
       </div>
+
+      <form
+        onSubmit={(e) => {
+          e.preventDefault()
+          ask(input)
+        }}
+        className="sticky bottom-0 mt-6 flex gap-2 border-t pt-4"
+        style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-bg)' }}
+      >
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="내 차 EV6인데 계기판이 깜빡여요"
+          className="flex-1 rounded-lg border px-4 py-2.5 text-sm outline-none"
+          style={{ borderColor: 'var(--color-border)' }}
+        />
+        <button
+          type="submit"
+          disabled={turn?.pending}
+          className="flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium text-white disabled:opacity-50"
+          style={{ backgroundColor: 'var(--color-navy)' }}
+        >
+          <Send size={15} strokeWidth={1.5} />
+          전송
+        </button>
+      </form>
     </div>
   )
 }

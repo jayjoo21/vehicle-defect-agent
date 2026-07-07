@@ -3,7 +3,9 @@ import type { HeatmapResponse } from '../lib/types'
 
 function cellColor(count: number, max: number): string {
   if (count === 0) return 'var(--color-bg-subtle)'
-  const t = Math.min(count / max, 1)
+  // 감마 보정(0.55)으로 중저값 구간의 명도 차를 벌려 대비를 강화한다(선형 보간은 대부분의
+  // 셀이 낮은 값에 몰려 회색빛으로 뭉뚱그려 보였음).
+  const t = Math.min(count / max, 1) ** 0.55
   // bgSubtle(#F6F7F9) -> navy(#002C5F) 보간
   const from = [0xf6, 0xf7, 0xf9]
   const to = [0x00, 0x2c, 0x5f]
@@ -26,16 +28,16 @@ export default function Heatmap({ data }: { data: HeatmapResponse }) {
         차종×월 히트맵
       </h3>
       <p className="mb-4 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-        신고 많은 상위 {data.models.length}개 차종 · 최근 {data.months.length}개월 · 빨강 테두리 = 알람 발화
+        발화(스파이크) 이력이 있는 차종 {data.models.length}개 · 최근 {data.months.length}개월 · 빨강 테두리 = 알람 발화
       </p>
       <div className="overflow-x-auto">
-        <table className="border-collapse text-[11px]">
+        <table className="border-collapse text-[12px]">
           <thead>
             <tr>
               <th className="sticky left-0 bg-white pr-2 text-left" style={{ color: 'var(--color-ink-muted)' }}></th>
-              {data.months.map((m) => (
-                <th key={m} className="px-0.5 pb-1 font-normal" style={{ color: 'var(--color-ink-muted)' }}>
-                  <span className="block -rotate-45 whitespace-nowrap">{m.slice(2)}</span>
+              {data.months.map((m, i) => (
+                <th key={m} className="px-[1px] pb-1 text-center font-normal" style={{ color: 'var(--color-ink-muted)' }}>
+                  <span className="block whitespace-nowrap">{i % 3 === 0 ? m.slice(2) : ''}</span>
                 </th>
               ))}
             </tr>
@@ -56,7 +58,7 @@ export default function Heatmap({ data }: { data: HeatmapResponse }) {
                   return (
                     <td key={month} className="p-[1px]">
                       <div
-                        className="h-4 w-4 cursor-pointer"
+                        className="h-6 w-6 cursor-pointer rounded-sm"
                         style={{
                           backgroundColor: cellColor(count, max),
                           border: alarm ? '2px solid var(--color-state-active)' : 'none',

@@ -2,7 +2,7 @@ import { Suspense, useEffect, useRef, useState } from 'react'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { OrbitControls, Html, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
-import { HOTSPOTS } from '../lib/hotspots'
+import type { HotspotDef } from '../lib/hotspots'
 import type { VehicleDomain } from '../lib/types'
 import { stateColor, stateLabel } from '../lib/tokens'
 
@@ -22,12 +22,14 @@ function toRelative(x: number, y: number) {
 
 function CarModel({
   path,
+  hotspots,
   domains,
   selectedDomain,
   onSelect,
   onLoaded,
 }: {
   path: string
+  hotspots: HotspotDef[]
   domains: VehicleDomain[]
   selectedDomain: string | null
   onSelect: (domain: string) => void
@@ -56,7 +58,7 @@ function CarModel({
     <group ref={group}>
       <primitive object={scene} />
       {box &&
-        HOTSPOTS.map((h) => {
+        hotspots.map((h) => {
           const d = domainByKey[h.domain]
           if (!d) return null
           const { frontBack, upDown } = toRelative(h.x, h.y)
@@ -91,12 +93,14 @@ function CarModel({
 
 export default function CarViewer3D({
   path,
+  hotspots,
   domains,
   selectedDomain,
   onSelect,
   onLoaded,
 }: {
   path: string
+  hotspots: HotspotDef[]
   domains: VehicleDomain[]
   selectedDomain: string | null
   onSelect: (domain: string) => void
@@ -107,7 +111,14 @@ export default function CarViewer3D({
       <ambientLight intensity={0.7} />
       <directionalLight position={[5, 8, 5]} intensity={1.2} />
       <Suspense fallback={null}>
-        <CarModel path={path} domains={domains} selectedDomain={selectedDomain} onSelect={onSelect} onLoaded={onLoaded} />
+        <CarModel
+          path={path}
+          hotspots={hotspots}
+          domains={domains}
+          selectedDomain={selectedDomain}
+          onSelect={onSelect}
+          onLoaded={onLoaded}
+        />
       </Suspense>
       <OrbitControls enableZoom={false} enablePan={false} />
     </Canvas>
