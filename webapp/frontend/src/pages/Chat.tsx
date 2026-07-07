@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { Send } from 'lucide-react'
 import { streamChat } from '../lib/sse'
 import type { ChatAnswer, ChatStep } from '../lib/types'
@@ -14,8 +15,19 @@ interface Turn {
 }
 
 export default function Chat() {
-  const [input, setInput] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const [input, setInput] = useState(() => searchParams.get('q') ?? '')
   const [turn, setTurn] = useState<Turn | null>(null)
+
+  useEffect(() => {
+    // 내 차 페이지의 "이 증상 조사하기"에서 넘어온 프리필 — 자동 전송은 하지 않음
+    const q = searchParams.get('q')
+    if (q) {
+      setInput(q)
+      setSearchParams({}, { replace: true })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function ask(question: string) {
     if (!question.trim() || turn?.pending) return

@@ -18,21 +18,25 @@ def get_vehicle_map(model: str, year: str, conn=Depends(get_db)):
     base_model = normalize_model(model)
 
     recalls = conn.execute(
-        "SELECT campaign, component, summary, report_date FROM recalls WHERE model = ?", (base_model,)
+        "SELECT campaign, component, summary, report_date FROM recalls WHERE model = ? ORDER BY report_date ASC",
+        (base_model,),
     ).fetchall()
 
     complaints_year = conn.execute(
-        "SELECT part_category, symptom, text, odino FROM complaints WHERE model = ? AND year = ?",
+        "SELECT part_category, symptom, text, odino, date FROM complaints WHERE model = ? AND year = ?",
         (model, year),
     ).fetchall()
     complaints_any_year = conn.execute(
-        "SELECT part_category, symptom, text, odino FROM complaints WHERE model = ?", (model,)
+        "SELECT part_category, symptom, text, odino, date FROM complaints WHERE model = ?", (model,)
     ).fetchall()
     complaints_source = complaints_year if complaints_year else complaints_any_year
     year_matched = bool(complaints_year)
 
     domain_state = {d: "new" for d in DOMAINS}
     domain_evidence = {d: None for d in DOMAINS}
+    domain_recall_count: dict[str, int] = {d: 0 for d in DOMAINS}
+    domain_complaint_count: dict[str, int] = {d: 0 for d in DOMAINS}
+    domain_months: dict[str, dict[str, int]] = {d: {} for d in DOMAINS}
 
     for r in recalls:
         # component 라벨은 부정확/포괄적일 수 있어(예: EV6 24V867000의 component는 "12V/24V/48V
@@ -41,21 +45,53 @@ def get_vehicle_map(model: str, year: str, conn=Depends(get_db)):
         domain = classify_domain(f"{r['component'] or ''} {r['summary'] or ''}")
         if domain:
             domain_state[domain] = "recalled"
+            domain_recall_count[domain] += 1
+            # ORDER BY report_date ASC라 마지막에 덮어써지는 값이 가장 최근 리콜이 됨
             domain_evidence[domain] = {"type": "recall", "campaign": r["campaign"], "report_date": r["report_date"]}
 
     for c in complaints_source:
         domain = classify_domain(f"{c['part_category'] or ''} {c['symptom'] or ''}")
-        if domain and domain_state[domain] == "new":
+        if not domain:
+            continue
+        domain_complaint_count[domain] += 1
+        month = (c["date"] or "")[:7]
+        if month:
+            domain_months[domain][month] = domain_months[domain].get(month, 0) + 1
+        if domain_state[domain] == "new":
             domain_state[domain] = "active"
             domain_evidence[domain] = {"type": "complaint", "odino": c["odino"], "text": c["text"]}
+
+    kr_gap_by_campaign = {
+        row["campaign"]: {"kr_date": row["kr_date"], "gap_days": row["gap_days"]}
+        for row in conn.execute("SELECT campaign, kr_date, gap_days FROM kr_us_gap").fetchall()
+    }
+
+    domains_out = []
+    for d in DOMAINS:
+        evidence = domain_evidence[d]
+        kr_gap = None
+        if evidence and evidence["type"] == "recall":
+            kr_gap = kr_gap_by_campaign.get(evidence["campaign"])
+        # 월별 신고 2개월 미만이면 "추이"라 부를 근거가 부족해 지어내지 않고 생략한다.
+        months = domain_months[d]
+        trend = [{"month": m, "count": n} for m, n in sorted(months.items())] if len(months) >= 2 else []
+        domains_out.append(
+            {
+                "domain": d,
+                "state": domain_state[d],
+                "evidence": evidence,
+                "recall_count": domain_recall_count[d],
+                "complaint_count": domain_complaint_count[d],
+                "trend": trend,
+                "kr_gap": kr_gap,
+            }
+        )
 
     return {
         "model": base_model,
         "year": year,
         "year_matched_complaints": year_matched,
-        "domains": [
-            {"domain": d, "state": domain_state[d], "evidence": domain_evidence[d]} for d in DOMAINS
-        ],
+        "domains": domains_out,
         "note": "도메인 분류는 recalls.component/summary·complaints.part_category 텍스트에 대한 "
         "키워드 기반 근사 매핑입니다. 실데이터에 매칭되는 것이 없으면 'new'(이력 없음)로 표시됩니다.",
     }

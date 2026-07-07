@@ -80,6 +80,10 @@ export interface VehicleDomain {
   domain: string
   state: SignalState
   evidence: { type: 'recall'; campaign: string; report_date: string } | { type: 'complaint'; odino: string; text: string } | null
+  recall_count: number
+  complaint_count: number
+  trend: { month: string; count: number }[]
+  kr_gap: { kr_date: string | null; gap_days: number | null } | null
 }
 
 export interface VehicleMap {
