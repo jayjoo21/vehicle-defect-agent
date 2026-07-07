@@ -1,6 +1,15 @@
 """LLM 어댑터. LLM_PROVIDER 환경변수가 없으면 자동 mock 모드 (에러 아님).
-mock 시나리오 구현은 4단계(조사 채팅)에서 채움."""
+
+role: structurize | investigate | judge | answer
+mock 모드는 llm/mock_responses/{role}/{scenario}.json의 markdown_template에
+context 딕셔너리를 .format()으로 대입해 반환한다 — 실측 수치(신고 건수 등)는
+전부 chat.py가 DB에서 직접 조회해 context로 넘기므로, 템플릿에는 지어낸 값이 없다.
+"""
+import json
 import os
+from pathlib import Path
+
+MOCK_DIR = Path(__file__).resolve().parent / "mock_responses"
 
 # provider별 role->모델 매핑. 하드코딩 금지, 설정에서만 관리.
 MODEL_MAP = {
@@ -23,11 +32,16 @@ class LLM:
     def __init__(self):
         self.provider = os.getenv("LLM_PROVIDER", "mock")
 
-    def call(self, role: str, messages: list, **kw):
-        """role: structurize | investigate | judge | answer"""
+    def call(self, role: str, scenario: str, context: dict | None = None) -> dict:
+        """role: structurize | investigate | judge | answer. scenario는 mock 모드에서만 사용."""
         if self.provider == "mock":
-            return self._mock_call(role, messages, **kw)
-        raise NotImplementedError(f"provider={self.provider} 연동은 4단계 이후 구현")
+            return self._mock_call(role, scenario, context or {})
+        raise NotImplementedError(f"provider={self.provider} 연동은 v0 이후 구현 (현재는 mock만 지원)")
 
-    def _mock_call(self, role: str, messages: list, **kw):
-        raise NotImplementedError("mock 시나리오는 4단계에서 구현")
+    def _mock_call(self, role: str, scenario: str, context: dict) -> dict:
+        path = MOCK_DIR / role / f"{scenario}.json"
+        if not path.exists():
+            raise FileNotFoundError(f"mock response 없음: {path}")
+        template = json.loads(path.read_text(encoding="utf-8"))
+        markdown = template["markdown_template"].format(**context)
+        return {"markdown": markdown}

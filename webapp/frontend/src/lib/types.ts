@@ -100,3 +100,23 @@ export interface VehicleHistory {
   model: string
   history: VehicleHistoryPoint[]
 }
+
+export interface ChatStep {
+  id: number
+  icon: string
+  title: string
+  result: string
+  status: 'done' | 'active'
+}
+
+export interface ChatSource {
+  type: 'odino' | 'campaign'
+  id: string
+  text: string | null
+}
+
+export interface ChatAnswer {
+  markdown: string
+  sources: ChatSource[]
+  report_id: number | null
+}
