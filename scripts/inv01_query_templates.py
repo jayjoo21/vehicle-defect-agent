@@ -1,7 +1,7 @@
 #허정윤: INV-01   
 
 """
-MOBISCOPE INV-01 — 안전한 CSV 조회 템플릿
+MOBISCOPE INV-01 — CSV 조회 템플릿
 ============================================================
 목적
 - data/processed/hk_electrical_recent_full.csv 를 대상으로 AI가 직접 코드를 만들지 않고
