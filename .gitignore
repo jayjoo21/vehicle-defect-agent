@@ -10,3 +10,6 @@ __pycache__/
 # IDE
 .vscode/
 .idea/
+
+# Playwright MCP 디버그 산출물 (스크린샷 테스트용, 커밋 대상 아님)
+.playwright-mcp/

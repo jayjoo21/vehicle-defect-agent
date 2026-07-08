@@ -1,0 +1,11 @@
+.git/
+data/raw/
+data/samples/
+docs/molit_press/
+docs/*.pdf
+webapp/frontend/node_modules/
+webapp/frontend/dist/
+webapp/data/app.db
+webapp/.env
+**/__pycache__/
+**/*.pyc
