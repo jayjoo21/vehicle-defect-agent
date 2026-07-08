@@ -9,6 +9,7 @@ from db import get_db
 from engine.domains import DOMAINS, classify_domain
 from engine.normalize import normalize_model
 from engine.state import top_state
+from engine.text import clean_quote
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
 
@@ -59,7 +60,7 @@ def get_vehicle_map(model: str, year: str, conn=Depends(get_db)):
             domain_months[domain][month] = domain_months[domain].get(month, 0) + 1
         if domain_state[domain] == "new":
             domain_state[domain] = "active"
-            domain_evidence[domain] = {"type": "complaint", "odino": c["odino"], "text": c["text"]}
+            domain_evidence[domain] = {"type": "complaint", "odino": c["odino"], "text": clean_quote(c["text"])}
 
     kr_gap_by_campaign = {
         row["campaign"]: {"kr_date": row["kr_date"], "gap_days": row["gap_days"]}

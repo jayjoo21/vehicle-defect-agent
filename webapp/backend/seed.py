@@ -310,6 +310,46 @@ def seed_reports(conn, ev9_signal_id):
     return report_id, len(markdown)
 
 
+def seed_chat_reports(conn) -> dict:
+    """CHT-03: 조사 채팅 목 시나리오(EV6/IONIQ 5)의 [상세 리포트 보기]가 연결할 리포트를
+    미리 생성한다. chat.py의 컨텍스트 빌더 함수(ev6_build_context 등)를 그대로 재사용해
+    실제 채팅 응답과 정확히 같은 쿼리·같은 템플릿으로 렌더링하므로, 리포트 내용을 별도로
+    새로 작성하지 않아도 답변 markdown과 100% 일치한다."""
+    from routers.chat import (
+        EV6_REPORT_TITLE,
+        IONIQ5_REPORT_TITLE,
+        ev6_build_context,
+        ev6_cluster_rows,
+        ev6_iccu_campaigns,
+        ev6_recent_count,
+        ioniq5_build_context,
+        ioniq5_iccu_campaigns,
+        ioniq5_iccu_hits,
+        ioniq5_recent_rows,
+    )
+    from llm.adapter import LLM
+
+    llm = LLM()
+
+    ev6_context, _ = ev6_build_context(ev6_recent_count(conn), ev6_iccu_campaigns(conn), ev6_cluster_rows(conn))
+    ev6_markdown = llm.call("answer", "ev6_cluster", ev6_context)["markdown"]
+
+    i5_recent = ioniq5_recent_rows(conn)
+    i5_campaigns = ioniq5_iccu_campaigns(conn)
+    ioniq5_context, _ = ioniq5_build_context(i5_recent, i5_campaigns, ioniq5_iccu_hits(i5_recent))
+    ioniq5_markdown = llm.call("answer", "ioniq5_charging", ioniq5_context)["markdown"]
+
+    rows = [
+        (None, EV6_REPORT_TITLE, ev6_markdown, "2026-07-08"),
+        (None, IONIQ5_REPORT_TITLE, ioniq5_markdown, "2026-07-08"),
+    ]
+    conn.executemany(
+        "INSERT INTO reports (signal_id, title, markdown, created_at) VALUES (?, ?, ?, ?)", rows
+    )
+    conn.commit()
+    return {"ev6_len": len(ev6_markdown), "ioniq5_len": len(ioniq5_markdown)}
+
+
 def seed_signal_states(conn, ev9_signal_id):
     rows = [
         (ev9_signal_id, "active", "2024-09-01"),  # b1 발화월 (report_24V757000.md)
@@ -353,12 +393,13 @@ def seed():
     ev9_signal_id = id_map[("EV9", "2024-09")]
     report_id, report_len = seed_reports(conn, ev9_signal_id)
     seed_signal_states(conn, ev9_signal_id)
+    chat_report_lens = seed_chat_reports(conn)
 
-    print_integrity_report(conn, report_len)
+    print_integrity_report(conn, report_len, chat_report_lens)
     conn.close()
 
 
-def print_integrity_report(conn, ev9_report_len: int):
+def print_integrity_report(conn, ev9_report_len: int, chat_report_lens: dict):
     print("=== seed 정합성 리포트 ===")
     for table in ["complaints", "recalls", "signals", "signal_states", "reports", "kr_us_gap"]:
         n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
@@ -376,6 +417,7 @@ def print_integrity_report(conn, ev9_report_len: int):
     print(f"    투싼 +8일 포함: {'O' if tucson else 'X'}")
 
     print(f"\n  EV9 리포트 마크다운 글자 수: {ev9_report_len}자")
+    print(f"  CHT-03 사전 리포트 (EV6/IONIQ5) 마크다운 글자 수: {chat_report_lens['ev6_len']}자 / {chat_report_lens['ioniq5_len']}자")
 
     # KPI 4종 실계산
     watched_models = conn.execute("SELECT COUNT(DISTINCT model) FROM signals").fetchone()[0]

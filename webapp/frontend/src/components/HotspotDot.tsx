@@ -1,6 +1,7 @@
 import { motion, useReducedMotion } from 'framer-motion'
 import type { SignalState } from '../lib/tokens'
-import { stateColor, stateLabel } from '../lib/tokens'
+import { stateColor } from '../lib/tokens'
+import StateIcon from './StateIcon'
 
 export default function HotspotDot({
   xPct,
@@ -33,18 +34,20 @@ export default function HotspotDot({
       animate={reduceMotion ? undefined : { scale: 1, opacity: 1 }}
       transition={{ delay, duration: 0.3 }}
     >
+      {/* 점 크기 1/3 축소(기존 16px→약 5px) — 이 크기에선 아이콘이 식별 불가해 점 안 아이콘은
+          제거하고, 대신 호버 툴팁에 아이콘+라벨+상태를 한 줄로 병기해 색상 단독 인코딩을 피한다. */}
       <span
-        className="block h-4 w-4 rounded-full ring-2 ring-white"
-        style={{ backgroundColor: color, boxShadow: selected ? `0 0 0 4px ${color}55` : undefined }}
+        className="block rounded-full ring-2 ring-white"
+        style={{ width: 5, height: 5, backgroundColor: color, boxShadow: selected ? `0 0 0 3px ${color}55` : undefined }}
       />
       <div
-        className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12px] text-white group-hover:block"
+        className="pointer-events-none absolute left-1/2 top-full z-10 mt-1.5 hidden -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] text-white group-hover:flex"
         style={{ backgroundColor: '#0B1220' }}
       >
-        <div className="font-medium">{label}</div>
-        <div style={{ color: '#9CA3AF' }}>
-          {stateLabel[state]} · {summary}
-        </div>
+        <StateIcon state={state} size={10} color={color} />
+        <span>
+          {label} · {summary}
+        </span>
       </div>
     </motion.button>
   )

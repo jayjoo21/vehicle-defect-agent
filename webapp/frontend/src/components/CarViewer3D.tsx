@@ -1,10 +1,12 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
-import { Canvas, useFrame } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Html, useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import type { HotspotDef } from '../lib/hotspots'
 import type { VehicleDomain } from '../lib/types'
-import { stateColor, stateLabel } from '../lib/tokens'
+import { stateColor } from '../lib/tokens'
+import { hotspotSummary } from '../lib/hotspotSummary'
+import StateIcon from './StateIcon'
 
 const AUTO_ROTATE_RAD_PER_SEC = (6 * Math.PI) / 180 // 초당 6도
 
@@ -20,6 +22,10 @@ function toRelative(x: number, y: number) {
   return { frontBack, upDown }
 }
 
+// 카메라를 모델 바운딩박스에 맞춰 자동 프레이밍할 때, 바운딩구 지름이 화면 세로 높이에서
+// 차지할 목표 비율 — "차가 카드의 70%+를 차지"라는 요구보다 여유를 둬 확실히 넘기도록 잡음.
+const FRAME_FILL_RATIO = 0.85
+
 function CarModel({
   path,
   hotspots,
@@ -27,6 +33,7 @@ function CarModel({
   selectedDomain,
   onSelect,
   onLoaded,
+  onFramed,
 }: {
   path: string
   hotspots: HotspotDef[]
@@ -34,8 +41,10 @@ function CarModel({
   selectedDomain: string | null
   onSelect: (domain: string) => void
   onLoaded: () => void
+  onFramed: (target: [number, number, number]) => void
 }) {
   const { scene } = useGLTF(path)
+  const { camera } = useThree()
   const group = useRef<THREE.Group>(null)
   const [box, setBox] = useState<THREE.Box3 | null>(null)
 
@@ -43,7 +52,26 @@ function CarModel({
     // scene 참조가 아닌 path에 의존: useGLTF 캐시 때문에 같은 차체형태(suv 등)로 차종을
     // 바꾸면 scene 참조가 그대로라 [scene] 의존이면 onLoaded가 다시 호출되지 않아
     // 상위(CarViewer)의 3초 타임아웃 폴백이 잘못 발동하는 문제가 있었다.
-    setBox(new THREE.Box3().setFromObject(scene))
+    const b = new THREE.Box3().setFromObject(scene)
+    setBox(b)
+
+    // 카메라 자동 fit: 바운딩박스 대각선(maxDim)이 세로 FOV 기준 FRAME_FILL_RATIO를 채우는
+    // 거리로 카메라를 이동한다. 차종마다 glb 스케일이 달라 고정 카메라 위치([4,1.6,4])로는
+    // 어떤 차는 작게, 어떤 차는 잘려 보이는 문제가 있었다.
+    const size = new THREE.Vector3()
+    const center = new THREE.Vector3()
+    b.getSize(size)
+    b.getCenter(center)
+    const maxDim = Math.max(size.x, size.y, size.z) || 1
+    const persp = camera as THREE.PerspectiveCamera
+    const fovRad = (persp.fov * Math.PI) / 180
+    const distance = maxDim / 2 / (FRAME_FILL_RATIO * Math.tan(fovRad / 2))
+    const dir = new THREE.Vector3(1, 0.35, 1).normalize()
+    camera.position.copy(center.clone().addScaledVector(dir, distance))
+    camera.lookAt(center)
+    persp.updateProjectionMatrix()
+    onFramed([center.x, center.y, center.z])
+
     onLoaded()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path])
@@ -65,23 +93,23 @@ function CarModel({
           const z = box.min.z + (FRONT_AXIS_SIGN > 0 ? frontBack : 1 - frontBack) * (box.max.z - box.min.z)
           const position: [number, number, number] = [0, box.min.y + upDown * (box.max.y - box.min.y), z]
           const color = stateColor[d.state]
-          const summary =
-            d.complaint_count > 0 ? `관련 신고 ${d.complaint_count}건` : d.recall_count > 0 ? `리콜 ${d.recall_count}건` : '이력 없음'
+          const summary = hotspotSummary(d)
           return (
             <Html key={h.domain} position={position} center distanceFactor={10} zIndexRange={[10, 0]}>
               <button onClick={() => onSelect(h.domain)} className="group relative block">
+                {/* 점 크기 1/3 축소 — SVG 버전(HotspotDot)과 동일하게 아이콘은 툴팁으로 옮김 */}
                 <span
-                  className="block h-4 w-4 rounded-full ring-2 ring-white"
-                  style={{ backgroundColor: color, boxShadow: selectedDomain === h.domain ? `0 0 0 4px ${color}55` : undefined }}
+                  className="block rounded-full ring-2 ring-white"
+                  style={{ width: 5, height: 5, backgroundColor: color, boxShadow: selectedDomain === h.domain ? `0 0 0 3px ${color}55` : undefined }}
                 />
                 <div
-                  className="pointer-events-none absolute left-1/2 top-full z-10 mt-2 hidden -translate-x-1/2 whitespace-nowrap rounded-md px-2.5 py-1.5 text-[12px] text-white group-hover:block"
+                  className="pointer-events-none absolute left-1/2 top-full z-10 mt-1.5 hidden -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] text-white group-hover:flex"
                   style={{ backgroundColor: '#0B1220' }}
                 >
-                  <div className="font-medium">{h.label}</div>
-                  <div style={{ color: '#9CA3AF' }}>
-                    {stateLabel[d.state]} · {summary}
-                  </div>
+                  <StateIcon state={d.state} size={10} color={color} />
+                  <span>
+                    {h.label} · {summary}
+                  </span>
                 </div>
               </button>
             </Html>
@@ -106,6 +134,8 @@ export default function CarViewer3D({
   onSelect: (domain: string) => void
   onLoaded: () => void
 }) {
+  const [target, setTarget] = useState<[number, number, number]>([0, 0, 0])
+
   return (
     <Canvas camera={{ position: [4, 1.6, 4], fov: 40 }}>
       <ambientLight intensity={0.7} />
@@ -118,9 +148,10 @@ export default function CarViewer3D({
           selectedDomain={selectedDomain}
           onSelect={onSelect}
           onLoaded={onLoaded}
+          onFramed={setTarget}
         />
       </Suspense>
-      <OrbitControls enableZoom={false} enablePan={false} />
+      <OrbitControls target={target} enableZoom={false} enablePan={false} />
     </Canvas>
   )
 }

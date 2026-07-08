@@ -1,6 +1,13 @@
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
 import { motion, useReducedMotion } from 'framer-motion'
 import type { GapResponse, GapRow } from '../lib/types'
+import { SOURCE_LINE } from '../lib/tokens'
+
+// 사용자 지정값 — CLAUDE.md Task 6 "미국선행 14건, 중앙값 ~33일"과 동일한 실측 중앙값을
+// 이 8건 큐레이션 차트의 시각적 기준선으로 사용한다(이 8건만의 중앙값을 별도로 재계산하지 않음).
+const MEDIAN_GAP_DAYS = 33
+const SANTA_FE_CAMPAIGN = '25V808000'
 
 function dayOffset(iso: string, epoch: number): number {
   return (new Date(iso).getTime() - epoch) / 86_400_000
@@ -10,7 +17,7 @@ function truncate(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
-export default function GapDumbbell({ data }: { data: GapResponse }) {
+export default function GapDumbbell({ data, modelIds }: { data: GapResponse; modelIds: Record<string, number> }) {
   const reduceMotion = useReducedMotion()
 
   // 백엔드(get_gap)가 이미 |gap_days|<=365 필터 + 캠페인당 대표 1행 dedup을 적용해 반환한다.
@@ -24,15 +31,30 @@ export default function GapDumbbell({ data }: { data: GapResponse }) {
     return { epoch: min, span: (max - min) / 86_400_000 || 1 }
   }, [rows])
 
+  const medianPct = (MEDIAN_GAP_DAYS / span) * 100
+
   return (
     <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
       <h3 className="mb-1 text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
-        한·미 시차 (대표 {rows.length}건)
+        미국 신고는 한국 리콜보다 빨랐다 — 최대 152일
       </h3>
-      <p className="mb-4 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-        <span style={{ color: 'var(--color-navy)' }}>●</span> 미국 접수 — <span style={{ color: '#DC2626' }}>●</span> 한국 발표 · 회색 점 =
-        한국 시정 개시일 미확인*
+      <p className="mb-3 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+        한·미 시차 · 대표 {rows.length}건 · <span style={{ color: 'var(--color-navy)' }}>●</span> 미국 접수 — <span style={{ color: '#DC2626' }}>●</span>{' '}
+        한국 발표 · 회색 점 = 한국 시정 개시일 미확인*
       </p>
+
+      <div className="mb-3 flex items-center gap-2 text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
+        <span className="w-24 shrink-0">기준선</span>
+        <div className="relative h-4 max-w-[200px] flex-1">
+          <div
+            className="absolute top-1/2 h-0 -translate-y-1/2 border-t-2 border-dashed"
+            style={{ width: `${medianPct}%`, borderColor: 'var(--color-ink-muted)' }}
+          />
+          <span className="absolute whitespace-nowrap" style={{ left: `${medianPct}%`, top: '50%', transform: 'translate(4px, -50%)' }}>
+            중앙값 +{MEDIAN_GAP_DAYS}일
+          </span>
+        </div>
+      </div>
 
       <div className="flex flex-col gap-4">
         {rows.map((r, i) => {
@@ -40,13 +62,21 @@ export default function GapDumbbell({ data }: { data: GapResponse }) {
           const krPct = (dayOffset(r.kr_date, epoch) / span) * 100
           const left = Math.min(usPct, krPct)
           const width = Math.abs(krPct - usPct)
-          const highlighted = r.campaign === '25V808000'
+          const highlighted = r.campaign === SANTA_FE_CAMPAIGN
           const label = r.model && r.defect_summary ? `${r.model} · ${truncate(r.defect_summary, 22)}` : r.campaign
+          const signalId = r.model ? modelIds[r.model] : undefined
           return (
             <div key={`${r.campaign}-${r.id}`} className={highlighted ? 'rounded-lg p-2' : ''} style={highlighted ? { backgroundColor: 'var(--color-navy-soft)' } : undefined}>
               <div className="mb-1 flex items-center justify-between gap-2 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-                <span className="truncate" style={{ color: 'var(--color-ink)' }} title={r.defect_summary ?? undefined}>
-                  {label} <span className="font-mono" style={{ color: 'var(--color-ink-muted)' }}>{r.campaign}</span>
+                <span className="truncate" title={r.defect_summary ?? undefined}>
+                  {signalId != null ? (
+                    <Link to={`/signals/${signalId}`} className="hover:underline" style={{ color: 'var(--color-ink)' }}>
+                      {label}
+                    </Link>
+                  ) : (
+                    <span style={{ color: 'var(--color-ink)' }}>{label}</span>
+                  )}{' '}
+                  <span className="font-mono" style={{ color: 'var(--color-ink-muted)' }}>{r.campaign}</span>
                 </span>
                 <span className="shrink-0 font-medium" style={{ color: r.gap_days && r.gap_days < 0 ? '#DC2626' : 'var(--color-navy)' }}>
                   {r.gap_days !== null ? `${r.gap_days > 0 ? '+' : ''}${r.gap_days}일` : '-'}
@@ -78,14 +108,24 @@ export default function GapDumbbell({ data }: { data: GapResponse }) {
                   />
                 )}
               </div>
+              {highlighted && (
+                <p className="mt-1 text-[11px] italic" style={{ color: 'var(--color-ink-muted)' }}>
+                  리콜까지 5개월, 국내 무조치 기간
+                </p>
+              )}
             </div>
           )
         })}
       </div>
 
-      <p className="mt-4 border-t pt-3 text-[11px]" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
-        {data.excluded_note} · * 한국 발표는 확인됐으나 시정 개시 정보가 없는 건
-      </p>
+      <div className="mt-4 flex items-end justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
+        <p className="text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
+          {data.excluded_note} · * 한국 발표는 확인됐으나 시정 개시 정보가 없는 건
+        </p>
+        <p className="shrink-0 whitespace-nowrap text-[9px]" style={{ color: 'var(--color-ink-muted)' }}>
+          {SOURCE_LINE}
+        </p>
+      </div>
     </div>
   )
 }

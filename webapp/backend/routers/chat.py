@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from db import get_db
+from engine.text import clean_quote as _clean_quote
 from llm.adapter import LLM
 
 router = APIRouter(tags=["chat"])
@@ -33,14 +34,21 @@ RECENT_CUTOFF = "2026-04-01"  # DATA_AS_OF 기준 약 90일 전
 
 STEP_DELAY = 0.35
 
+# CHT-03: 채팅 답변의 [상세 리포트 보기]가 연결할 시나리오별 사전 생성 리포트 제목.
+# seed.py가 이 정확한 제목으로 reports 테이블에 미리 렌더링해 넣고(아래 build_ev6_context 등을
+# 그대로 재사용해 답변과 동일한 컨텍스트로 생성), 이 함수는 요청마다 제목으로 id를 조회한다 —
+# 하드코딩된 id 대신 제목 매칭이라 seed 재실행으로 id가 바뀌어도 깨지지 않는다.
+EV6_REPORT_TITLE = "EV6 계기판 조사 리포트 (조사 채팅 데모 사전 생성)"
+IONIQ5_REPORT_TITLE = "IONIQ 5 ICCU·충전 조사 리포트 (조사 채팅 데모 사전 생성)"
+
+
+def _report_id_by_title(conn, title: str) -> int | None:
+    row = conn.execute("SELECT id FROM reports WHERE title = ?", (title,)).fetchone()
+    return row["id"] if row else None
+
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-def _clean_quote(text: str | None) -> str:
-    """NHTSA 원문 텍스트의 개행·중복 공백을 정리한다(내용 변경 없음, 표시용 정리만)."""
-    return " ".join((text or "").split())
 
 
 def detect_scenario(message: str) -> str:
@@ -70,6 +78,42 @@ def _complaint_source(r) -> dict:
     }
 
 
+# --- EV6 시나리오: 쿼리를 개별 함수로 쪼갠 이유는 채팅 SSE 흐름(단계별로 하나씩 실행해 각
+# 단계의 duration_ms를 재야 함)과 seed.py의 사전 리포트 생성(전부 한 번에 실행)이 정확히 같은
+# 쿼리·같은 컨텍스트를 공유해야 채팅 답변과 리포트 내용이 100% 일치하기 때문이다. ---
+
+def ev6_recent_count(conn) -> int:
+    return conn.execute("SELECT COUNT(*) FROM complaints WHERE model='EV6' AND date >= ?", (RECENT_CUTOFF,)).fetchone()[0]
+
+
+def ev6_iccu_campaigns(conn) -> list[str]:
+    all_recalls = conn.execute(
+        "SELECT campaign, summary FROM recalls WHERE model='EV6' AND country='US' ORDER BY report_date"
+    ).fetchall()
+    return [r["campaign"] for r in all_recalls if _is_iccu_recall(r)]
+
+
+def ev6_cluster_rows(conn):
+    return conn.execute(
+        "SELECT odino, date, text, part_category, symptom FROM complaints WHERE model='EV6' AND part_category='INSTRUMENT_CLUSTER' ORDER BY date"
+    ).fetchall()
+
+
+def ev6_build_context(recent_count, iccu_campaigns, cluster_rows) -> tuple[dict, list[dict]]:
+    context = {
+        "recent_count": recent_count,
+        "iccu_campaigns": "·".join(iccu_campaigns),
+        "cluster_odino_1": cluster_rows[0]["odino"] if len(cluster_rows) > 0 else "-",
+        "cluster_date_1": cluster_rows[0]["date"] if len(cluster_rows) > 0 else "-",
+        "cluster_odino_2": cluster_rows[1]["odino"] if len(cluster_rows) > 1 else "-",
+        "cluster_date_2": cluster_rows[1]["date"] if len(cluster_rows) > 1 else "-",
+    }
+    sources = [_complaint_source(r) for r in cluster_rows] + [
+        {"type": "campaign", "id": c, "text": None, "part_category": None, "symptom": None} for c in iccu_campaigns
+    ]
+    return context, sources
+
+
 async def _ev6_cluster_flow(conn, llm: LLM):
     t0 = time.perf_counter()
     yield _sse(
@@ -80,9 +124,7 @@ async def _ev6_cluster_flow(conn, llm: LLM):
     await asyncio.sleep(STEP_DELAY)
 
     t0 = time.perf_counter()
-    recent_count = conn.execute(
-        "SELECT COUNT(*) FROM complaints WHERE model='EV6' AND date >= ?", (RECENT_CUTOFF,)
-    ).fetchone()[0]
+    recent_count = ev6_recent_count(conn)
     yield _sse(
         "step",
         {"id": 2, "icon": "search", "title": "이력 조회", "result": f"최근 90일 신고 {recent_count}건", "status": "done",
@@ -91,10 +133,7 @@ async def _ev6_cluster_flow(conn, llm: LLM):
     await asyncio.sleep(STEP_DELAY)
 
     t0 = time.perf_counter()
-    all_recalls = conn.execute(
-        "SELECT campaign, summary FROM recalls WHERE model='EV6' AND country='US' ORDER BY report_date"
-    ).fetchall()
-    iccu_campaigns = [r["campaign"] for r in all_recalls if _is_iccu_recall(r)]
+    iccu_campaigns = ev6_iccu_campaigns(conn)
     yield _sse(
         "step",
         {
@@ -110,9 +149,7 @@ async def _ev6_cluster_flow(conn, llm: LLM):
     await asyncio.sleep(STEP_DELAY)
 
     t0 = time.perf_counter()
-    cluster_rows = conn.execute(
-        "SELECT odino, date, text, part_category, symptom FROM complaints WHERE model='EV6' AND part_category='INSTRUMENT_CLUSTER' ORDER BY date"
-    ).fetchall()
+    cluster_rows = ev6_cluster_rows(conn)
     yield _sse(
         "step",
         {
@@ -128,18 +165,9 @@ async def _ev6_cluster_flow(conn, llm: LLM):
     await asyncio.sleep(STEP_DELAY)
 
     t0 = time.perf_counter()
-    context = {
-        "recent_count": recent_count,
-        "iccu_campaigns": "·".join(iccu_campaigns),
-        "cluster_odino_1": cluster_rows[0]["odino"] if len(cluster_rows) > 0 else "-",
-        "cluster_date_1": cluster_rows[0]["date"] if len(cluster_rows) > 0 else "-",
-        "cluster_odino_2": cluster_rows[1]["odino"] if len(cluster_rows) > 1 else "-",
-        "cluster_date_2": cluster_rows[1]["date"] if len(cluster_rows) > 1 else "-",
-    }
+    context, sources = ev6_build_context(recent_count, iccu_campaigns, cluster_rows)
     result = llm.call("answer", "ev6_cluster", context)
-    sources = [_complaint_source(r) for r in cluster_rows] + [
-        {"type": "campaign", "id": c, "text": None, "part_category": None, "symptom": None} for c in iccu_campaigns
-    ]
+    report_id = _report_id_by_title(conn, EV6_REPORT_TITLE)
     yield _sse(
         "step",
         {"id": 5, "icon": "check-circle", "title": "검수", "result": f"통과 (출처 {len(sources)}건 확인)", "status": "done",
@@ -147,7 +175,56 @@ async def _ev6_cluster_flow(conn, llm: LLM):
     )
     await asyncio.sleep(0.2)
 
-    yield _sse("answer", {"markdown": result["markdown"], "sources": sources, "report_id": None})
+    yield _sse("answer", {"markdown": result["markdown"], "sources": sources, "report_id": report_id})
+
+
+IONIQ5_KEYWORDS = ["ICCU", "12-VOLT", "12V", "CHARGING CONTROL"]
+
+
+def ioniq5_recent_rows(conn):
+    return conn.execute(
+        "SELECT odino, date, text, part_category, symptom FROM complaints WHERE model='IONIQ 5' AND date >= ?", (RECENT_CUTOFF,)
+    ).fetchall()
+
+
+def ioniq5_iccu_campaigns(conn) -> list[str]:
+    all_recalls = conn.execute(
+        "SELECT campaign, summary FROM recalls WHERE model='IONIQ 5' AND country='US' ORDER BY report_date"
+    ).fetchall()
+    return [r["campaign"] for r in all_recalls if _is_iccu_recall(r)]
+
+
+def ioniq5_iccu_hits(recent_rows):
+    return [r for r in recent_rows if any(k in (r["text"] or "").upper() for k in IONIQ5_KEYWORDS)]
+
+
+def ioniq5_build_context(recent_rows, iccu_campaigns, iccu_hits) -> tuple[dict, list[dict]]:
+    recent_count = len(recent_rows)
+    iccu_ratio = round(100 * len(iccu_hits) / recent_count) if recent_count else 0
+    recurrence_rows = [
+        r for r in iccu_hits
+        if "재발" in r["text"] or "AGAIN" in (r["text"] or "").upper() or "SECOND TIME" in (r["text"] or "").upper() or "RECALL" in (r["text"] or "").upper()
+    ]
+    top2 = iccu_hits[-2:] if len(iccu_hits) >= 2 else iccu_hits
+    recur = recurrence_rows[0] if recurrence_rows else None
+
+    context = {
+        "recent_count": recent_count,
+        "iccu_campaigns": "·".join(iccu_campaigns),
+        "iccu_hit_count": len(iccu_hits),
+        "iccu_ratio": iccu_ratio,
+        "odino_1": top2[0]["odino"] if len(top2) > 0 else "-",
+        "date_1": top2[0]["date"] if len(top2) > 0 else "-",
+        "odino_2": top2[1]["odino"] if len(top2) > 1 else "-",
+        "date_2": top2[1]["date"] if len(top2) > 1 else "-",
+        "odino_recur": recur["odino"] if recur else "-",
+        "date_recur": recur["date"] if recur else "-",
+    }
+    cited = {r["odino"]: r for r in (top2 + ([recur] if recur else []))}
+    sources = [_complaint_source(r) for r in cited.values()] + [
+        {"type": "campaign", "id": c, "text": None, "part_category": None, "symptom": None} for c in iccu_campaigns
+    ]
+    return context, sources
 
 
 async def _ioniq5_charging_flow(conn, llm: LLM):
@@ -160,9 +237,7 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
     await asyncio.sleep(STEP_DELAY)
 
     t0 = time.perf_counter()
-    recent_rows = conn.execute(
-        "SELECT odino, date, text, part_category, symptom FROM complaints WHERE model='IONIQ 5' AND date >= ?", (RECENT_CUTOFF,)
-    ).fetchall()
+    recent_rows = ioniq5_recent_rows(conn)
     recent_count = len(recent_rows)
     yield _sse(
         "step",
@@ -172,10 +247,7 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
     await asyncio.sleep(STEP_DELAY)
 
     t0 = time.perf_counter()
-    all_recalls = conn.execute(
-        "SELECT campaign, summary FROM recalls WHERE model='IONIQ 5' AND country='US' ORDER BY report_date"
-    ).fetchall()
-    iccu_campaigns = [r["campaign"] for r in all_recalls if _is_iccu_recall(r)]
+    iccu_campaigns = ioniq5_iccu_campaigns(conn)
     yield _sse(
         "step",
         {
@@ -191,8 +263,7 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
     await asyncio.sleep(STEP_DELAY)
 
     t0 = time.perf_counter()
-    keywords = ["ICCU", "12-VOLT", "12V", "CHARGING CONTROL"]
-    iccu_hits = [r for r in recent_rows if any(k in (r["text"] or "").upper() for k in keywords)]
+    iccu_hits = ioniq5_iccu_hits(recent_rows)
     iccu_ratio = round(100 * len(iccu_hits) / recent_count) if recent_count else 0
     yield _sse(
         "step",
@@ -209,27 +280,9 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
     await asyncio.sleep(STEP_DELAY)
 
     t0 = time.perf_counter()
-    recurrence_rows = [r for r in iccu_hits if "재발" in r["text"] or "AGAIN" in (r["text"] or "").upper() or "SECOND TIME" in (r["text"] or "").upper() or "RECALL" in (r["text"] or "").upper()]
-    top2 = iccu_hits[-2:] if len(iccu_hits) >= 2 else iccu_hits
-    recur = recurrence_rows[0] if recurrence_rows else None
-
-    context = {
-        "recent_count": recent_count,
-        "iccu_campaigns": "·".join(iccu_campaigns),
-        "iccu_hit_count": len(iccu_hits),
-        "iccu_ratio": iccu_ratio,
-        "odino_1": top2[0]["odino"] if len(top2) > 0 else "-",
-        "date_1": top2[0]["date"] if len(top2) > 0 else "-",
-        "odino_2": top2[1]["odino"] if len(top2) > 1 else "-",
-        "date_2": top2[1]["date"] if len(top2) > 1 else "-",
-        "odino_recur": recur["odino"] if recur else "-",
-        "date_recur": recur["date"] if recur else "-",
-    }
+    context, sources = ioniq5_build_context(recent_rows, iccu_campaigns, iccu_hits)
     result = llm.call("answer", "ioniq5_charging", context)
-    cited = {r["odino"]: r for r in (top2 + ([recur] if recur else []))}
-    sources = [_complaint_source(r) for r in cited.values()] + [
-        {"type": "campaign", "id": c, "text": None, "part_category": None, "symptom": None} for c in iccu_campaigns
-    ]
+    report_id = _report_id_by_title(conn, IONIQ5_REPORT_TITLE)
     yield _sse(
         "step",
         {"id": 5, "icon": "check-circle", "title": "검수", "result": f"통과 (출처 {len(sources)}건 확인)", "status": "done",
@@ -237,7 +290,7 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
     )
     await asyncio.sleep(0.2)
 
-    yield _sse("answer", {"markdown": result["markdown"], "sources": sources, "report_id": None})
+    yield _sse("answer", {"markdown": result["markdown"], "sources": sources, "report_id": report_id})
 
 
 async def _out_of_scope_flow(llm: LLM):

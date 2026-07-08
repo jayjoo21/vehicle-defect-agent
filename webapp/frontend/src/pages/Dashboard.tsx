@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
 import KpiStrip from '../components/KpiStrip'
@@ -12,6 +13,13 @@ export default function Dashboard() {
   const signals = useFetch(() => api.signals(), [])
   const gap = useFetch(api.gap, [])
   const heatmap = useFetch(api.heatmap, [])
+
+  // 히트맵 셀·덤벨 행은 base_model 문자열만 가지고 있어, 시그널 상세 페이지(/signals/:id)로
+  // 연결하려면 카드 목록에서 model->id를 역으로 찾아야 한다.
+  const modelIds = useMemo(
+    () => Object.fromEntries((signals.data?.signals ?? []).map((c) => [c.model, c.id])),
+    [signals.data],
+  )
 
   const error = summary.error || signals.error || gap.error || heatmap.error
   if (error) {
@@ -40,8 +48,8 @@ export default function Dashboard() {
       {signals.data ? <SignalCardGrid cards={signals.data.signals} /> : <SkeletonBlock height={200} />}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {gap.data ? <GapDumbbell data={gap.data} /> : <SkeletonBlock height={300} />}
-        {heatmap.data ? <Heatmap data={heatmap.data} /> : <SkeletonBlock height={300} />}
+        {gap.data ? <GapDumbbell data={gap.data} modelIds={modelIds} /> : <SkeletonBlock height={300} />}
+        {heatmap.data ? <Heatmap data={heatmap.data} modelIds={modelIds} /> : <SkeletonBlock height={300} />}
       </div>
 
       {signals.data ? <RecentReports cards={signals.data.signals} /> : <SkeletonBlock height={150} />}

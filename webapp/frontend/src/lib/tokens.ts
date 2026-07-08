@@ -32,5 +32,7 @@ export const stateLabel: Record<SignalState, string> = {
 
 export const DATA_AS_OF = '2026-07-06 05:00 KST'
 
+export const SOURCE_LINE = 'NHTSA·국토부 공개 데이터 · 기준 2026-07-06'
+
 export const DISCLAIMER =
   '본 정보는 NHTSA·국토부 공개 신고 및 리콜 기록 기반이며, 개별 차량의 진단이 아닙니다. 신고는 미검증 소비자 제보를 포함합니다.'

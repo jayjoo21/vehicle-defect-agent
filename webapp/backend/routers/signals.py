@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from db import get_db
 from engine.episode import DASHBOARD_PRIORITY, RECALL_RECENT_WINDOW_DAYS, aggregate_by_month, derive_episode_state
 from engine.normalize import normalize_model
+from engine.text import clean_quote
 
 router = APIRouter(tags=["signals"])
 
@@ -42,7 +43,7 @@ def _representative_quote(conn, base_model: str) -> dict | None:
     if not matching:
         return None
     latest = max(matching, key=lambda r: r["date"])
-    return {"odino": latest["odino"], "text": latest["text"]}
+    return {"odino": latest["odino"], "text": clean_quote(latest["text"])}
 
 
 def _build_cards(conn, latest_month: str, recall_dates_by_model: dict) -> list[dict]:
@@ -64,13 +65,19 @@ def _build_cards(conn, latest_month: str, recall_dates_by_model: dict) -> list[d
         card_state = derive_episode_state(by_month, latest_month, recall_dates)
         count_sum = sum(r["count"] for r in latest_rows)
         top_symptom = next((r["top_symptom"] for r in latest_rows if r["top_symptom"]), None)
-        report_id = next((r["report_id"] for r in latest_rows if r["report_id"]), None)
+        # report_id는 latest_rows(최신월)가 아니라 base_model 전체 이력에서 찾는다 — EV9 리포트는
+        # 스파이크가 발생한 2024-09 행에 연결돼 있어 latest_month(2026-06) 행만 보면 항상 None이었다.
+        report_id = next((r["report_id"] for r in rows if r["report_id"]), None)
 
         months_sorted = sorted({r["month"] for r in rows})[-CARD_SPARKLINE_MONTHS:]
         sparkline = [sum(r["count"] for r in rows if r["month"] == m) for m in months_sorted]
 
         cards.append(
             {
+                # 시그널 상세 페이지(/signals/:id) 진입용 — base_model당 대표 행 id 하나(최신월 행 중 하나).
+                # 상세 페이지는 이 id로 base_model을 역산해 전체 이력을 다시 조회하므로 어떤 변형의
+                # 행이든 무방하다.
+                "id": latest_rows[0]["id"],
                 "model": base_model,
                 "state": card_state,
                 "top_symptom": top_symptom,
@@ -152,25 +159,73 @@ def list_signals(state: str | None = None, model: str | None = None, conn=Depend
 
 @router.get("/signals/{signal_id}")
 def get_signal(signal_id: int, conn=Depends(get_db)):
+    """시그널 상세 + 생애 타임라인(스펙 5절-B). id는 base_model당 대표 행 하나를 가리키며,
+    이 엔드포인트는 그 행에서 base_model을 역산해 전체 이력(모든 변형·모든 월)을 다시 모아
+    돌려준다 — 어느 변형의 행을 클릭해도 같은 base_model 타임라인에 도달한다."""
     row = conn.execute(
         "SELECT id, model, month, count, baseline, state, top_symptom, report_id FROM signals WHERE id = ?",
         (signal_id,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="signal not found")
+    base_model = normalize_model(row["model"])
+
+    all_rows = conn.execute(
+        "SELECT id, model, month, count, baseline, top_symptom, report_id FROM signals"
+    ).fetchall()
+    rows_for_model = [r for r in all_rows if normalize_model(r["model"]) == base_model]
+
+    recall_dates_by_model = _recall_dates_by_model(conn)
+    recall_dates = recall_dates_by_model.get(base_model, [])
+
+    # 생애 타임라인: 대시보드 카드와 동일한 derive_episode_state를 월별로 반복 적용한다
+    # (같은 함수를 재사용하므로 카드의 상태·색상과 항상 일치한다). 스펙 원문의 5색 예시(초록
+    # "잠잠" 포함)는 대시보드 전역에서 쓰는 4상태(new/rising/active/recalled) 모델과 어긋나
+    # 일부러 따르지 않았다 — 카드·핫스팟·탭 등 앱 전체와 일관된 상태만 사용한다.
+    by_month = aggregate_by_month(rows_for_model)
+    months_sorted = sorted(by_month)
+    timeline = [
+        {
+            "month": m,
+            "count": by_month[m]["count"],
+            "baseline": by_month[m]["baseline"] or None,
+            "state": derive_episode_state(by_month, m, recall_dates),
+        }
+        for m in months_sorted
+    ]
+    current_state = timeline[-1]["state"] if timeline else row["state"]
+
+    recalls = conn.execute(
+        "SELECT campaign, report_date, component, summary FROM recalls WHERE model = ? AND country = 'US' ORDER BY report_date",
+        (base_model,),
+    ).fetchall()
+
+    kr_gap = conn.execute(
+        """SELECT campaign, defect_summary, date_basis, us_date, kr_date, kr_start_date, gap_days
+           FROM kr_us_gap WHERE model = ? ORDER BY us_date""",
+        (base_model,),
+    ).fetchall()
+
+    top_symptom = next((r["top_symptom"] for r in rows_for_model if r["top_symptom"]), None)
+    report_id = next((r["report_id"] for r in rows_for_model if r["report_id"]), None)
+
     states = conn.execute(
         "SELECT state, changed_at FROM signal_states WHERE signal_id = ? ORDER BY changed_at", (signal_id,)
     ).fetchall()
+
     return {
         "id": row["id"],
-        "model": row["model"],
+        "model": base_model,
         "month": row["month"],
         "count": row["count"],
         "baseline": row["baseline"],
-        "state": row["state"],
-        "top_symptom": row["top_symptom"],
-        "report_id": row["report_id"],
+        "state": current_state,
+        "top_symptom": top_symptom,
+        "report_id": report_id,
         "lifecycle": [dict(s) for s in states],
+        "timeline": timeline,
+        "recalls": [dict(r) for r in recalls],
+        "kr_gap": [dict(r) for r in kr_gap],
     }
 
 

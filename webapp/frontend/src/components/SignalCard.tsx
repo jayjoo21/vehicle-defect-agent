@@ -13,9 +13,9 @@ export default function SignalCard({ card }: { card: SignalCardData }) {
       style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}
     >
       <div className="flex items-start justify-between">
-        <h3 className="text-lg font-semibold" style={{ color: 'var(--color-ink)' }}>
+        <Link to={`/signals/${card.id}`} className="text-lg font-semibold hover:underline" style={{ color: 'var(--color-ink)' }}>
           {card.model}
-        </h3>
+        </Link>
         <span
           className="rounded-full px-2 py-0.5 text-[12px] font-medium"
           style={{ color, backgroundColor: `${color}1A` }}

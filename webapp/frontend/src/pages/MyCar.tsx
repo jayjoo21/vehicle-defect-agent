@@ -8,9 +8,12 @@ import CarRegistration from '../components/CarRegistration'
 import CarViewer from '../components/CarViewer'
 import DomainDetailCard from '../components/DomainDetailCard'
 
-// 5.5단계: 2열 레이아웃 — 좌측 정보 기둥(차종명/상태 요약/도메인 목록/선택된 도메인 상세 카드),
-// 우측 상단 3D(60% 크기, sticky). 도메인은 왼쪽 목록에서도, 3D/SVG 뷰어 핫스팟에서도 선택 가능
-// 하도록 selectedDomain 상태를 공유한다.
+// 5.5단계: 2열 레이아웃 — 좌측 정보 기둥(차종명/상태 요약/도메인 목록), 우측 상단 3D(60% 크기,
+// sticky). 도메인은 왼쪽 목록에서도, 3D/SVG 뷰어 핫스팟에서도 선택 가능하도록 selectedDomain
+// 상태를 공유한다.
+// 6단계: 좌측 목록은 이력 있는 도메인만 카드로 보여주고, 이력 없는 도메인은 하단에 한 줄
+// 요약("계기판 외 4개 도메인: 이력 없음")으로 접는다 — 6개를 전부 카드로 나열하면 대부분
+// "이력 없음"이라 신호 대비 잡음이 컸음. 선택된 도메인의 상세 카드는 우측(차 아래)으로 이동.
 export default function MyCar() {
   const { car, register, reset } = useMyCar()
   const [justRegistered, setJustRegistered] = useState(false)
@@ -60,6 +63,10 @@ export default function MyCar() {
   const stateCounts = { active: 0, rising: 0, recalled: 0, new: 0, resolved: 0 } as Record<string, number>
   for (const d of domains) stateCounts[d.state] += 1
 
+  const historyDomains = domains.filter((d) => d.state !== 'new')
+  const emptyDomains = domains.filter((d) => d.state === 'new')
+  const emptyLabel = (d: (typeof domains)[number]) => HOTSPOT_LABELS[d.domain] ?? d.domain
+
   function selectDomain(d: string) {
     setSelectedDomain(d)
   }
@@ -100,42 +107,48 @@ export default function MyCar() {
           </p>
         )}
 
-        <ul className="flex flex-col gap-1.5">
-          {domains.map((d) => {
-            const color = stateColor[d.state]
-            const isSelected = selectedDomain === d.domain
-            return (
-              <li key={d.domain}>
-                <button
-                  onClick={() => selectDomain(d.domain)}
-                  className="flex w-full items-center justify-between rounded-lg border px-4 py-2.5 text-left text-[13px] transition-colors"
-                  style={{
-                    borderColor: isSelected ? color : 'var(--color-border)',
-                    backgroundColor: isSelected ? `${color}0D` : 'transparent',
-                  }}
-                >
-                  <span className="flex items-center gap-2" style={{ color: 'var(--color-ink)' }}>
-                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-                    {HOTSPOT_LABELS[d.domain] ?? d.domain}
-                  </span>
-                  <span style={{ color }}>{stateLabel[d.state]}</span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-
-        {selected ? (
-          <DomainDetailCard domain={selected} model={map.data.model} />
+        {historyDomains.length > 0 ? (
+          <ul className="flex flex-col gap-1.5">
+            {historyDomains.map((d) => {
+              const color = stateColor[d.state]
+              const isSelected = selectedDomain === d.domain
+              return (
+                <li key={d.domain}>
+                  <button
+                    onClick={() => selectDomain(d.domain)}
+                    className="flex w-full items-center justify-between rounded-lg border px-4 py-2.5 text-left text-[13px] transition-colors"
+                    style={{
+                      borderColor: isSelected ? color : 'var(--color-border)',
+                      backgroundColor: isSelected ? `${color}0D` : 'transparent',
+                    }}
+                  >
+                    <span className="flex items-center gap-2" style={{ color: 'var(--color-ink)' }}>
+                      <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
+                      {HOTSPOT_LABELS[d.domain] ?? d.domain}
+                    </span>
+                    <span style={{ color }}>{stateLabel[d.state]}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         ) : (
-          <p className="rounded-xl border p-6 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
-            도메인을 선택하면 관련 리콜·신고 상세 정보가 여기에 표시됩니다.
+          <p className="text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
+            이력이 있는 도메인이 없습니다.
+          </p>
+        )}
+
+        {emptyDomains.length > 0 && (
+          <p className="text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+            {emptyDomains.length === 1
+              ? `${emptyLabel(emptyDomains[0])}: 이력 없음`
+              : `${emptyLabel(emptyDomains[0])} 외 ${emptyDomains.length - 1}개 도메인: 이력 없음`}
           </p>
         )}
       </div>
 
-      {/* 우측: 3D/SVG 뷰어, 60% 크기로 축소, 상단 고정 */}
-      <div className="order-1 lg:sticky lg:top-6 lg:order-2">
+      {/* 우측: 3D/SVG 뷰어(60% 크기) + 선택된 도메인 상세 카드(차 아래), 상단 고정 */}
+      <div className="order-1 flex flex-col gap-4 lg:sticky lg:top-6 lg:order-2">
         <div className="mx-auto w-full sm:w-[60%]">
           <CarViewer
             model={map.data.model}
@@ -146,6 +159,14 @@ export default function MyCar() {
             animateIn={justRegistered}
           />
         </div>
+
+        {selected ? (
+          <DomainDetailCard domain={selected} model={map.data.model} />
+        ) : (
+          <p className="rounded-xl border p-6 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
+            도메인을 선택하면 관련 리콜·신고 상세 정보가 여기에 표시됩니다.
+          </p>
+        )}
       </div>
 
       {toast && (

@@ -1,6 +1,7 @@
 import { HOTSPOTS_BY_BODY_TYPE } from '../lib/hotspots'
 import type { BodyType } from '../lib/bodyType'
 import type { VehicleDomain } from '../lib/types'
+import { hotspotSummary } from '../lib/hotspotSummary'
 import HotspotDot from './HotspotDot'
 
 const VIEW_W = 400
@@ -63,12 +64,6 @@ export default function CarViewerSvg({
         {hotspots.map((h, i) => {
           const d = domainByKey[h.domain]
           if (!d) return null
-          const summary =
-            d.complaint_count > 0
-              ? `관련 신고 ${d.complaint_count}건`
-              : d.recall_count > 0
-                ? `리콜 ${d.recall_count}건`
-                : '이력 없음'
           return (
             <HotspotDot
               key={h.domain}
@@ -76,7 +71,7 @@ export default function CarViewerSvg({
               yPct={(h.y / VIEW_H) * 100}
               state={d.state}
               label={h.label}
-              summary={summary}
+              summary={hotspotSummary(d)}
               selected={selectedDomain === h.domain}
               onClick={() => onSelect(h.domain)}
               delay={animateIn ? i * 0.2 : 0}

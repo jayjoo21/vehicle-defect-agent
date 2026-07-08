@@ -19,8 +19,10 @@ export default function HeroSignalCard({ hero }: { hero: HeroCardData }) {
           <p className="mb-1 text-[12px] font-medium uppercase tracking-wide" style={{ color }}>
             오늘의 시그널
           </p>
-          <h2 className="text-4xl font-bold" style={{ color: 'var(--color-navy)' }}>
-            {hero.model}
+          <h2 className="text-4xl font-bold hover:underline">
+            <Link to={`/signals/${hero.id}`} style={{ color: 'var(--color-navy)' }}>
+              {hero.model}
+            </Link>
           </h2>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="rounded-full px-2.5 py-1 text-[12px] font-medium" style={{ color, backgroundColor: `${color}1A` }}>

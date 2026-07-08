@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import type { HeatmapResponse } from '../lib/types'
+import { SOURCE_LINE } from '../lib/tokens'
 
 function cellColor(count: number, max: number): string {
   if (count === 0) return 'var(--color-bg-subtle)'
@@ -13,7 +15,8 @@ function cellColor(count: number, max: number): string {
   return `rgb(${rgb.join(',')})`
 }
 
-export default function Heatmap({ data }: { data: HeatmapResponse }) {
+export default function Heatmap({ data, modelIds }: { data: HeatmapResponse; modelIds: Record<string, number> }) {
+  const navigate = useNavigate()
   const [hover, setHover] = useState<{ model: string; month: string; count: number; alarm: boolean } | null>(null)
   const max = useMemo(() => Math.max(...data.cells.map((c) => c.count), 1), [data.cells])
   const cellByKey = useMemo(() => {
@@ -25,10 +28,10 @@ export default function Heatmap({ data }: { data: HeatmapResponse }) {
   return (
     <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
       <h3 className="mb-1 text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
-        차종×월 히트맵
+        알람은 특정 차종에 띠를 이룬다
       </h3>
       <p className="mb-4 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-        발화(스파이크) 이력이 있는 차종 {data.models.length}개 · 최근 {data.months.length}개월 · 빨강 테두리 = 알람 발화
+        차종×월 히트맵 · 발화(스파이크) 이력이 있는 차종 {data.models.length}개 · 최근 {data.months.length}개월 · 빨강 테두리 = 알람 발화 · 클릭 시 시그널 상세로 이동
       </p>
       <div className="overflow-x-auto">
         <table className="border-collapse text-[12px]">
@@ -43,41 +46,51 @@ export default function Heatmap({ data }: { data: HeatmapResponse }) {
             </tr>
           </thead>
           <tbody>
-            {data.models.map((model) => (
-              <tr key={model}>
-                <td
-                  className="sticky left-0 whitespace-nowrap bg-white pr-2 text-right font-medium"
-                  style={{ color: 'var(--color-ink)' }}
-                >
-                  {model}
-                </td>
-                {data.months.map((month) => {
-                  const cell = cellByKey.get(`${model}|${month}`)
-                  const count = cell?.count ?? 0
-                  const alarm = cell?.alarm ?? false
-                  return (
-                    <td key={month} className="p-[1px]">
-                      <div
-                        className="h-6 w-6 cursor-pointer rounded-sm"
-                        style={{
-                          backgroundColor: cellColor(count, max),
-                          border: alarm ? '2px solid var(--color-state-active)' : 'none',
-                        }}
-                        onMouseEnter={() => setHover({ model, month, count, alarm })}
-                        onMouseLeave={() => setHover(null)}
-                      />
-                    </td>
-                  )
-                })}
-              </tr>
-            ))}
+            {data.models.map((model) => {
+              const signalId = modelIds[model]
+              return (
+                <tr key={model}>
+                  <td
+                    className="sticky left-0 whitespace-nowrap bg-white pr-2 text-right font-medium"
+                    style={{ color: 'var(--color-ink)', cursor: signalId != null ? 'pointer' : undefined }}
+                    onClick={() => signalId != null && navigate(`/signals/${signalId}`)}
+                  >
+                    {model}
+                  </td>
+                  {data.months.map((month) => {
+                    const cell = cellByKey.get(`${model}|${month}`)
+                    const count = cell?.count ?? 0
+                    const alarm = cell?.alarm ?? false
+                    return (
+                      <td key={month} className="p-[1px]">
+                        <div
+                          className="h-6 w-6 cursor-pointer rounded-sm"
+                          style={{
+                            backgroundColor: cellColor(count, max),
+                            border: alarm ? '2px solid var(--color-state-active)' : 'none',
+                          }}
+                          onMouseEnter={() => setHover({ model, month, count, alarm })}
+                          onMouseLeave={() => setHover(null)}
+                          onClick={() => signalId != null && navigate(`/signals/${signalId}`)}
+                        />
+                      </td>
+                    )
+                  })}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
-      <div className="mt-3 h-5 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-        {hover
-          ? `${hover.model} · ${hover.month} · ${hover.count}건${hover.alarm ? ' · 알람 발화' : ''}`
-          : '셀에 마우스를 올리면 상세 정보가 표시됩니다.'}
+      <div className="mt-3 flex items-end justify-between gap-3">
+        <div className="h-5 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+          {hover
+            ? `${hover.model} · ${hover.month} · ${hover.count}건${hover.alarm ? ' · 알람 발화' : ''}`
+            : '셀에 마우스를 올리면 상세 정보가 표시됩니다.'}
+        </div>
+        <p className="shrink-0 whitespace-nowrap text-[9px]" style={{ color: 'var(--color-ink-muted)' }}>
+          {SOURCE_LINE}
+        </p>
       </div>
     </div>
   )

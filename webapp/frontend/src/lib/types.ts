@@ -11,6 +11,7 @@ export interface Summary {
 }
 
 export interface SignalCardData {
+  id: number
   model: string
   state: SignalState
   top_symptom: string | null
@@ -35,6 +36,30 @@ export interface LifecycleEntry {
   changed_at: string
 }
 
+export interface TimelinePoint {
+  month: string
+  count: number
+  baseline: number | null
+  state: SignalState
+}
+
+export interface SignalRecall {
+  campaign: string
+  report_date: string
+  component: string | null
+  summary: string | null
+}
+
+export interface SignalKrGap {
+  campaign: string
+  defect_summary: string | null
+  date_basis: string | null
+  us_date: string | null
+  kr_date: string | null
+  kr_start_date: string | null
+  gap_days: number | null
+}
+
 export interface SignalDetail {
   id: number
   model: string
@@ -45,6 +70,9 @@ export interface SignalDetail {
   top_symptom: string | null
   report_id: number | null
   lifecycle: LifecycleEntry[]
+  timeline: TimelinePoint[]
+  recalls: SignalRecall[]
+  kr_gap: SignalKrGap[]
 }
 
 export interface GapRow {
