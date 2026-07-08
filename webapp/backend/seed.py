@@ -252,8 +252,20 @@ def _defect_summary(r: dict) -> str | None:
     return None
 
 
+# 6.6단계: kr_us_gap.csv에 한국_원인/한국_증상이 없어 _defect_summary()가 미국_컴포넌트(영문
+# 원문 그대로)로 폴백하던 대시보드 덤벨차트 대표 8건 중 3건 — "영어 원문 노출 금지" 원칙에 따라
+# recalls.summary(이미 DB에 있는 실측 NHTSA 영문 설명)를 한 줄로 번역·요약해 수동 매핑한다.
+# 새로운 원인·진단을 지어낸 게 아니라 기존 영문 summary의 번역이다.
+DEFECT_SUMMARY_KO_OVERRIDE = {
+    "25V291000": "전동 오일펌프 제어기 밀봉 불량으로 인한 화재 위험",  # PALISADE, 실측 summary 번역
+    "25V426000": "후방 카메라 회로기판 손상으로 화면 미표시",  # NIRO EV, 실측 summary 번역
+    "25V006000": "차체제어모듈(BDC) SW 오류로 전조등·후미등 꺼짐",  # SORENTO, 실측 summary 번역
+}
+
+
 def _gap_row_tuple(r: dict, base_model: str, date_basis: str) -> tuple:
     campaign = r["미국_캠페인번호"] if pd.notna(r.get("미국_캠페인번호")) else r["한국_차종_원문"]
+    defect_summary = DEFECT_SUMMARY_KO_OVERRIDE.get(campaign, _defect_summary(r))
     gap_days = None
     if pd.notna(r.get("시차_일")):
         try:
@@ -263,7 +275,7 @@ def _gap_row_tuple(r: dict, base_model: str, date_basis: str) -> tuple:
     return (
         campaign,
         base_model,
-        _defect_summary(r),
+        defect_summary,
         date_basis,
         r["미국_접수일"] if pd.notna(r.get("미국_접수일")) else None,
         r["한국_발표일"] if pd.notna(r.get("한국_발표일")) else None,
@@ -299,9 +311,23 @@ def seed_kr_us_gap(conn, gap_df: pd.DataFrame, extra_rows: list[dict]):
 
 def seed_reports(conn, ev9_signal_id):
     markdown = REPORT_EV9_PATH.read_text(encoding="utf-8")
+    # report_24V757000.md 본문에 이미 적힌 실측 수치 그대로(28/29=96.6% 집중도, 10일 선행) —
+    # 여기서 새로 계산하거나 지어낸 값이 아니다.
+    metrics = json.dumps({"complaint_count": 29, "concentration_pct": 96.6, "lead_days": 10})
     cur = conn.execute(
-        "INSERT INTO reports (signal_id, title, markdown, created_at) VALUES (?, ?, ?, ?)",
-        (ev9_signal_id, "EV9 계기판 블랙아웃 시그널 리포트 — 24V757000 되감기 사례", markdown, "2026-07-06"),
+        """INSERT INTO reports (signal_id, title, markdown, created_at, model, campaign, reference_month, state, metrics)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            ev9_signal_id,
+            "EV9 계기판 블랙아웃 시그널 리포트 — 24V757000 되감기 사례",
+            markdown,
+            "2026-07-06",
+            "EV9",
+            "24V757000",
+            "2024-09",
+            "recalled",
+            metrics,
+        ),
     )
     conn.commit()
     report_id = cur.lastrowid
@@ -314,8 +340,18 @@ def seed_chat_reports(conn) -> dict:
     """CHT-03: 조사 채팅 목 시나리오(EV6/IONIQ 5)의 [상세 리포트 보기]가 연결할 리포트를
     미리 생성한다. chat.py의 컨텍스트 빌더 함수(ev6_build_context 등)를 그대로 재사용해
     실제 채팅 응답과 정확히 같은 쿼리·같은 템플릿으로 렌더링하므로, 리포트 내용을 별도로
-    새로 작성하지 않아도 답변 markdown과 100% 일치한다."""
+    새로 작성하지 않아도 답변 markdown과 100% 일치한다.
+
+    6.6단계: 메타(model/campaign/reference_month/state)·metrics도 함께 채운다. state는 지어내지
+    않고, 대시보드 카드·시그널 상세와 동일한 에피소드 상태 규칙(engine/episode.py)을 그대로
+    재사용해 계산한다 — signals.state(셀 상태)를 직접 쓰면 "지금 리콜 대응 중"이라는 의미가
+    아니라 특정 월 한 칸의 관측치만 보여줘 이 리포트의 결론("이미 ICCU 리콜과 연결됨")과
+    불일치할 수 있다(예: IONIQ 5의 최신월 셀 상태는 'new'이지만 에피소드 상태는 'recalled')."""
+    from engine.episode import aggregate_by_month, derive_episode_state
+    from engine.normalize import normalize_model
     from routers.chat import (
+        DATA_AS_OF,
+        RECENT_CUTOFF,
         EV6_REPORT_TITLE,
         IONIQ5_REPORT_TITLE,
         ev6_build_context,
@@ -327,24 +363,46 @@ def seed_chat_reports(conn) -> dict:
         ioniq5_iccu_hits,
         ioniq5_recent_rows,
     )
+    from routers.signals import _recall_dates_by_model
     from llm.adapter import LLM
 
     llm = LLM()
+    reference_month = f"{RECENT_CUTOFF[:7]}~{DATA_AS_OF[:7]}"
+    latest_month = conn.execute("SELECT MAX(month) FROM signals").fetchone()[0]
+    recall_dates_by_model = _recall_dates_by_model(conn)
+
+    all_signal_rows = conn.execute("SELECT model, month, count, baseline FROM signals").fetchall()
+
+    def current_state(model: str) -> str:
+        base_model = normalize_model(model)
+        rows = [dict(r) for r in all_signal_rows if normalize_model(r["model"]) == base_model]
+        by_month = aggregate_by_month(rows)
+        return derive_episode_state(by_month, latest_month, recall_dates_by_model.get(base_model, []))
 
     ev6_context, _ = ev6_build_context(ev6_recent_count(conn), ev6_iccu_campaigns(conn), ev6_cluster_rows(conn))
     ev6_markdown = llm.call("answer", "ev6_cluster", ev6_context)["markdown"]
+    ev6_metrics = json.dumps(
+        {"complaint_count": ev6_context["recent_count"], "concentration_pct": None, "lead_days": None}
+    )
 
     i5_recent = ioniq5_recent_rows(conn)
     i5_campaigns = ioniq5_iccu_campaigns(conn)
     ioniq5_context, _ = ioniq5_build_context(i5_recent, i5_campaigns, ioniq5_iccu_hits(i5_recent))
     ioniq5_markdown = llm.call("answer", "ioniq5_charging", ioniq5_context)["markdown"]
+    ioniq5_metrics = json.dumps(
+        {"complaint_count": ioniq5_context["recent_count"], "concentration_pct": ioniq5_context["iccu_ratio"], "lead_days": None}
+    )
 
     rows = [
-        (None, EV6_REPORT_TITLE, ev6_markdown, "2026-07-08"),
-        (None, IONIQ5_REPORT_TITLE, ioniq5_markdown, "2026-07-08"),
+        (None, EV6_REPORT_TITLE, ev6_markdown, "2026-07-08", "EV6", ev6_context["iccu_campaigns"], reference_month,
+         current_state("EV6"), ev6_metrics),
+        (None, IONIQ5_REPORT_TITLE, ioniq5_markdown, "2026-07-08", "IONIQ 5", ioniq5_context["iccu_campaigns"],
+         reference_month, current_state("IONIQ 5"), ioniq5_metrics),
     ]
     conn.executemany(
-        "INSERT INTO reports (signal_id, title, markdown, created_at) VALUES (?, ?, ?, ?)", rows
+        """INSERT INTO reports (signal_id, title, markdown, created_at, model, campaign, reference_month, state, metrics)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows,
     )
     conn.commit()
     return {"ev6_len": len(ev6_markdown), "ioniq5_len": len(ioniq5_markdown)}

@@ -22,9 +22,14 @@ function toRelative(x: number, y: number) {
   return { frontBack, upDown }
 }
 
-// 카메라를 모델 바운딩박스에 맞춰 자동 프레이밍할 때, 바운딩구 지름이 화면 세로 높이에서
-// 차지할 목표 비율 — "차가 카드의 70%+를 차지"라는 요구보다 여유를 둬 확실히 넘기도록 잡음.
-const FRAME_FILL_RATIO = 0.85
+// 카메라를 모델 바운딩박스에 맞춰 자동 프레이밍할 때, 화면에서 차지할 목표 비율 — "차가
+// 카드의 70%+를 차지"라는 요구보다 여유를 둬 확실히 넘기도록 잡음.
+// 6.6단계: 기존엔 세로축(FOV)만 기준으로 거리를 계산해, 뷰어 컨테이너가 16:9로 넓은데 차의
+// 실제 투영 폭이 세로만큼 화면을 채우지 못해 좌우 여백이 크게 남는 문제가 있었다(가로 FOV는
+// 세로 FOV*aspect로 더 넓은데 폭 계산에 전혀 반영되지 않았음). 아래에서 바운딩박스 8개
+// 꼭짓점을 실제 카메라 방향(right/up 벡터)에 투영해 가로·세로 투영 폭을 각각 구하고, 더 빡빡한
+// 쪽(둘 중 더 먼 거리를 요구하는 쪽)이 정확히 FRAME_FILL_RATIO를 채우도록 거리를 정한다.
+const FRAME_FILL_RATIO = 0.9
 
 function CarModel({
   path,
@@ -55,18 +60,42 @@ function CarModel({
     const b = new THREE.Box3().setFromObject(scene)
     setBox(b)
 
-    // 카메라 자동 fit: 바운딩박스 대각선(maxDim)이 세로 FOV 기준 FRAME_FILL_RATIO를 채우는
-    // 거리로 카메라를 이동한다. 차종마다 glb 스케일이 달라 고정 카메라 위치([4,1.6,4])로는
-    // 어떤 차는 작게, 어떤 차는 잘려 보이는 문제가 있었다.
-    const size = new THREE.Vector3()
+    // 카메라 자동 fit: 바운딩박스 8개 꼭짓점을 카메라의 실제 right/up 축에 투영해 가로·세로
+    // 투영 폭을 각각 구하고, 가로 FOV(세로 FOV를 실제 캔버스 aspect로 넓힌 값)·세로 FOV 각각에
+    // 대해 "이 축을 FRAME_FILL_RATIO로 채우는 데 필요한 거리"를 계산한 뒤 더 큰(더 빡빡한) 쪽을
+    // 채택한다 — 차종마다 glb 스케일이 다르고 뷰어가 16:9로 넓어, 세로 기준만으로는 가로가
+    // 목표보다 작게 남는 문제가 있었다.
     const center = new THREE.Vector3()
-    b.getSize(size)
     b.getCenter(center)
-    const maxDim = Math.max(size.x, size.y, size.z) || 1
     const persp = camera as THREE.PerspectiveCamera
-    const fovRad = (persp.fov * Math.PI) / 180
-    const distance = maxDim / 2 / (FRAME_FILL_RATIO * Math.tan(fovRad / 2))
+    const fovVRad = (persp.fov * Math.PI) / 180
+    const aspect = persp.aspect || 16 / 9
+    const fovHRad = 2 * Math.atan(Math.tan(fovVRad / 2) * aspect)
+
     const dir = new THREE.Vector3(1, 0.35, 1).normalize()
+    const forward = dir.clone().negate()
+    const worldUp = new THREE.Vector3(0, 1, 0)
+    const right = new THREE.Vector3().crossVectors(forward, worldUp).normalize()
+    const up = new THREE.Vector3().crossVectors(right, forward).normalize()
+
+    const corners = [
+      new THREE.Vector3(b.min.x, b.min.y, b.min.z), new THREE.Vector3(b.min.x, b.min.y, b.max.z),
+      new THREE.Vector3(b.min.x, b.max.y, b.min.z), new THREE.Vector3(b.min.x, b.max.y, b.max.z),
+      new THREE.Vector3(b.max.x, b.min.y, b.min.z), new THREE.Vector3(b.max.x, b.min.y, b.max.z),
+      new THREE.Vector3(b.max.x, b.max.y, b.min.z), new THREE.Vector3(b.max.x, b.max.y, b.max.z),
+    ]
+    let widthExtent = 0
+    let heightExtent = 0
+    for (const c of corners) {
+      const rel = c.clone().sub(center)
+      widthExtent = Math.max(widthExtent, Math.abs(rel.dot(right)) * 2)
+      heightExtent = Math.max(heightExtent, Math.abs(rel.dot(up)) * 2)
+    }
+
+    const distanceForW = widthExtent / 2 / (FRAME_FILL_RATIO * Math.tan(fovHRad / 2))
+    const distanceForH = heightExtent / 2 / (FRAME_FILL_RATIO * Math.tan(fovVRad / 2))
+    const distance = Math.max(distanceForW, distanceForH, 0.1)
+
     camera.position.copy(center.clone().addScaledVector(dir, distance))
     camera.lookAt(center)
     persp.updateProjectionMatrix()

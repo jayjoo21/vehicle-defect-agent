@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from db import get_db
+from engine.part_category import ko_gloss
 from engine.text import clean_quote as _clean_quote
 from llm.adapter import LLM
 
@@ -76,6 +77,16 @@ def _complaint_source(r) -> dict:
         "part_category": r["part_category"],
         "symptom": r["symptom"],
     }
+
+
+def _build_quotes(sources: list[dict]) -> list[dict]:
+    """structured.quotes — sources(이미 조회된 인용 원문)를 재사용해 원문+한국어 요약 병기 형태로
+    변환한다. 6.6단계: 새 번역을 짓지 않고 part_category/symptom(이미 검증된 필드)만 재사용."""
+    return [
+        {"odino": s["id"], "original": s["text"], "summary_ko": ko_gloss(s["part_category"], s["symptom"])}
+        for s in sources
+        if s["type"] == "odino" and s["text"]
+    ]
 
 
 # --- EV6 시나리오: 쿼리를 개별 함수로 쪼갠 이유는 채팅 SSE 흐름(단계별로 하나씩 실행해 각
@@ -175,7 +186,10 @@ async def _ev6_cluster_flow(conn, llm: LLM):
     )
     await asyncio.sleep(0.2)
 
-    yield _sse("answer", {"markdown": result["markdown"], "sources": sources, "report_id": report_id})
+    structured = result.get("structured")
+    if structured is not None:
+        structured = {**structured, "quotes": _build_quotes(sources)}
+    yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": sources, "report_id": report_id})
 
 
 IONIQ5_KEYWORDS = ["ICCU", "12-VOLT", "12V", "CHARGING CONTROL"]
@@ -290,7 +304,10 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
     )
     await asyncio.sleep(0.2)
 
-    yield _sse("answer", {"markdown": result["markdown"], "sources": sources, "report_id": report_id})
+    structured = result.get("structured")
+    if structured is not None:
+        structured = {**structured, "quotes": _build_quotes(sources)}
+    yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": sources, "report_id": report_id})
 
 
 async def _out_of_scope_flow(llm: LLM):
@@ -309,7 +326,10 @@ async def _out_of_scope_flow(llm: LLM):
          "tool": "인용 검증", "duration_ms": round((time.perf_counter() - t0) * 1000)},
     )
     await asyncio.sleep(0.2)
-    yield _sse("answer", {"markdown": result["markdown"], "sources": [], "report_id": None})
+    structured = result.get("structured")
+    if structured is not None:
+        structured = {**structured, "quotes": []}
+    yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": [], "report_id": None})
 
 
 async def _stream(message: str, conn):

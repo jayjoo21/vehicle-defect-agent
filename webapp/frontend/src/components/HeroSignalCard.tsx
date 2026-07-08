@@ -9,6 +9,12 @@ export default function HeroSignalCard({ hero }: { hero: HeroCardData }) {
   const navigate = useNavigate()
   const color = stateColor[hero.state]
 
+  // 부제: 최빈 증상(top_symptom)이 있으면 그걸 우선, 없으면 스파크라인(최근 6개월)의
+  // 마지막 두 달 차이로 "전월 대비 +N건"을 계산한다 — 새 쿼리 없이 이미 있는 값만 사용.
+  const prevCount = hero.sparkline.length >= 2 ? hero.sparkline[hero.sparkline.length - 2] : null
+  const delta = prevCount != null ? hero.recent_count - prevCount : null
+  const subtitle = hero.top_symptom ?? (delta != null ? `전월 대비 ${delta >= 0 ? '+' : ''}${delta}건` : null)
+
   return (
     <div
       className="rounded-2xl border p-8"
@@ -24,6 +30,11 @@ export default function HeroSignalCard({ hero }: { hero: HeroCardData }) {
               {hero.model}
             </Link>
           </h2>
+          {subtitle && (
+            <p className="mt-1 text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
+              {subtitle}
+            </p>
+          )}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <span className="rounded-full px-2.5 py-1 text-[12px] font-medium" style={{ color, backgroundColor: `${color}1A` }}>
               {stateLabel[hero.state]}

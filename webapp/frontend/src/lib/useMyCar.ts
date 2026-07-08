@@ -5,7 +5,7 @@ export interface MyCar {
   year: string
 }
 
-const STORAGE_KEY = 'recall-radar:my-car'
+const STORAGE_KEY = 'precall:my-car'
 
 export function loadMyCar(): MyCar | null {
   try {

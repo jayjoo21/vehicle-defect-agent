@@ -14,7 +14,15 @@ const LABEL_Y = CHART_TOP + CHART_H + 20
 // 상태 밴드 색상은 대시보드 카드·핫스팟과 동일한 stateColor를 그대로 쓴다(4상태: new/rising/
 // active/recalled — 스펙 예시의 5번째 색 "초록 잠잠"은 앱 전체가 쓰는 에피소드 상태 모델에
 // 없어 의도적으로 제외했다. CLAUDE.md 6단계 기록 참조).
-export default function LifecycleTimeline({ timeline, recalls }: { timeline: TimelinePoint[]; recalls: SignalRecall[] }) {
+export default function LifecycleTimeline({
+  timeline,
+  recalls,
+  title,
+}: {
+  timeline: TimelinePoint[]
+  recalls: SignalRecall[]
+  title: string
+}) {
   const [hover, setHover] = useState<TimelinePoint | null>(null)
   const n = timeline.length
 
@@ -52,26 +60,45 @@ export default function LifecycleTimeline({ timeline, recalls }: { timeline: Tim
   // x축 라벨: 48개월이면 전부 표시하면 겹치므로 6개월 간격만.
   const labelEvery = n > 18 ? 6 : n > 8 ? 3 : 1
 
+  // y축 눈금 3개(0 / 중간 / 최댓값) — 반올림한 값으로 표시하되 0과 max가 같아지지 않게 max>=1 보장.
+  const yTicks = [0, maxCount / 2, maxCount]
+
   return (
     <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
-      <h3 className="mb-1 text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
-        생애 타임라인
+      <h3 className="mb-1 text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>
+        {title}
       </h3>
       <p className="mb-3 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
         월별 신고 수 · 배경색 = 상태(신규/증가/활성/리콜 진행) · 점선 = US 리콜 접수일
       </p>
 
       <svg viewBox={`0 0 ${VBW} ${VBH}`} className="w-full" style={{ height: 'auto' }}>
-        {segments.map((seg, i) => (
-          <rect
-            key={i}
-            x={xAt(seg.start) - (seg.start === 0 ? 0 : xStep / 2)}
-            y={CHART_TOP}
-            width={xAt(seg.end) - xAt(seg.start) + (seg.start === 0 ? xStep / 2 : xStep / 2) + (seg.end === n - 1 ? xStep / 2 : 0)}
-            height={CHART_H}
-            fill={stateColor[seg.state]}
-            opacity={0.1}
-          />
+        {segments.map((seg, i) => {
+          // 구간 경계마다 정확히 반 스텝씩 확장해 인접 밴드끼리 틈 없이 맞닿게 한다(맨 처음/끝
+          // 구간만 차트 경계를 넘지 않도록 그 쪽 확장을 생략) — 이전에는 내부 경계에 확장이
+          // 빠져 있어 밴드 사이에 흰 틈이 보이는 버그가 있었다.
+          const left = seg.start === 0 ? xAt(0) : xAt(seg.start) - xStep / 2
+          const right = seg.end === n - 1 ? xAt(n - 1) : xAt(seg.end) + xStep / 2
+          return (
+            <rect
+              key={i}
+              x={left}
+              y={CHART_TOP}
+              width={Math.max(right - left, 0)}
+              height={CHART_H}
+              fill={stateColor[seg.state]}
+              opacity={0.16}
+            />
+          )
+        })}
+
+        {yTicks.map((v, i) => (
+          <g key={i}>
+            <line x1={MARGIN_L} y1={yAt(v)} x2={VBW - MARGIN_R} y2={yAt(v)} stroke="var(--color-border)" strokeWidth={1} />
+            <text x={MARGIN_L - 4} y={yAt(v) + 3} fontSize={9} textAnchor="end" fill="var(--color-ink-muted)">
+              {Math.round(v)}
+            </text>
+          </g>
         ))}
 
         <path d={areaPath} fill="var(--color-navy)" fillOpacity={0.18} stroke="var(--color-navy)" strokeWidth={1.5} />

@@ -28,6 +28,44 @@ MODEL_MAP = {
 }
 
 
+def _fmt(value: str, context: dict) -> str:
+    return value.format(**context)
+
+
+def _format_section(section: dict, context: dict) -> dict:
+    badges = []
+    for b in section.get("badges", []):
+        text = _fmt(b, context).strip()
+        # "-"는 이 프로젝트 전역에서 값 없음 sentinel(예: cluster_odino_2 없으면 "-")로
+        # 쓰이므로, 뱃지로 formatting했을 때 그 sentinel만 남는 경우는 표시하지 않는다.
+        if text and not text.endswith("-"):
+            badges.append(text)
+    return {
+        "title": _fmt(section["title"], context),
+        "body": _fmt(section["body"], context),
+        "badges": badges,
+    }
+
+
+def _format_structured(template: dict, context: dict) -> dict:
+    return {
+        "headline": _fmt(template["headline"], context),
+        "chips": [_fmt(c, context) for c in template.get("chips", [])],
+        "sections": [_format_section(s, context) for s in template.get("sections", [])],
+    }
+
+
+def _structured_to_markdown(structured: dict, confidence: dict | None) -> str:
+    """structured(headline+sections)로부터 리포트 저장용 markdown을 파생시킨다 — chat.py의 SSE
+    답변과 seed.py의 사전 리포트가 항상 같은 함수를 거치므로 두 markdown이 바이트 단위로 일치한다."""
+    parts = [structured["headline"]]
+    for s in structured["sections"]:
+        parts.append(f"**{s['title']}** — {s['body']}")
+    if confidence:
+        parts.append(f"## 확신도와 한계\n\n**확신도: {confidence['level']}.** {confidence['note']}")
+    return "\n\n".join(parts)
+
+
 class LLM:
     def __init__(self):
         self.provider = os.getenv("LLM_PROVIDER", "mock")
@@ -43,5 +81,15 @@ class LLM:
         if not path.exists():
             raise FileNotFoundError(f"mock response 없음: {path}")
         template = json.loads(path.read_text(encoding="utf-8"))
+        if role == "answer" and "headline" in template:
+            structured = _format_structured(template, context)
+            confidence = None
+            if "confidence" in template:
+                confidence = {
+                    "level": _fmt(template["confidence"]["level"], context),
+                    "note": _fmt(template["confidence"]["note"], context),
+                }
+            markdown = _structured_to_markdown(structured, confidence)
+            return {"markdown": markdown, "structured": structured}
         markdown = template["markdown_template"].format(**context)
         return {"markdown": markdown}

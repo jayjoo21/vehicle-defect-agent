@@ -1,0 +1,14 @@
+- generic [ref=f4e3]:
+  - banner [ref=f4e4]:
+    - generic [ref=f4e5]:
+      - link "RECALL RADAR" [ref=f4e6] [cursor=pointer]:
+        - /url: /
+      - generic [ref=f4e7]:
+        - generic [ref=f4e8]: "데이터 기준: 2026-07-06 05:00 KST"
+        - navigation [ref=f4e9]:
+          - link "내 차" [ref=f4e10] [cursor=pointer]:
+            - /url: /my-car
+          - link "조사 채팅" [ref=f4e11] [cursor=pointer]:
+            - /url: /chat
+  - main [ref=f4e12]
+  - contentinfo [ref=f4e14]: 본 정보는 NHTSA·국토부 공개 신고 및 리콜 기록 기반이며, 개별 차량의 진단이 아닙니다. 신고는 미검증 소비자 제보를 포함합니다.

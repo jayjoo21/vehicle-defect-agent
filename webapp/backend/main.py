@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routers import chat, reports, signals, vehicles
 
-app = FastAPI(title="Recall Radar API")
+app = FastAPI(title="PRECALL API")
 
 app.add_middleware(
     CORSMiddleware,

@@ -107,12 +107,23 @@ export interface HeatmapResponse {
   cells: HeatmapCell[]
 }
 
+export interface ReportMetrics {
+  complaint_count: number | null
+  concentration_pct: number | null
+  lead_days: number | null
+}
+
 export interface Report {
   id: number
   signal_id: number | null
   title: string
   markdown: string
   created_at: string
+  model: string | null
+  campaign: string | null
+  reference_month: string | null
+  state: SignalState | null
+  metrics: ReportMetrics | null
 }
 
 export interface VehicleDomain {
@@ -162,8 +173,28 @@ export interface ChatSource {
   symptom: string | null
 }
 
+export interface ChatSection {
+  title: string
+  body: string
+  badges: string[]
+}
+
+export interface ChatQuote {
+  odino: string
+  original: string
+  summary_ko: string | null
+}
+
+export interface ChatStructured {
+  headline: string
+  chips: string[]
+  sections: ChatSection[]
+  quotes: ChatQuote[]
+}
+
 export interface ChatAnswer {
   markdown: string
+  structured: ChatStructured | null
   sources: ChatSource[]
   report_id: number | null
 }

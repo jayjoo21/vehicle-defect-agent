@@ -44,12 +44,20 @@ CREATE TABLE IF NOT EXISTS signal_states (
     changed_at TEXT NOT NULL
 );
 
+-- 6.6단계: 리포트 뷰 메타 헤더 카드(차종/캠페인/기준월/상태) + 핵심 수치 3칸 그리드를 위한 컬럼.
+-- model/campaign/reference_month/state는 표시용 메타(지어낸 값 없음, seed.py가 실측/실쿼리로 채움),
+-- metrics는 {complaint_count, concentration_pct, lead_days} JSON 문자열(해당 없는 값은 null).
 CREATE TABLE IF NOT EXISTS reports (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     signal_id INTEGER,
     title TEXT NOT NULL,
     markdown TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    model TEXT,
+    campaign TEXT,
+    reference_month TEXT,
+    state TEXT,
+    metrics TEXT
 );
 
 -- campaign은 PK가 아님: 같은 US 캠페인이 서로 다른 한국 보도자료 항목(부품별)에

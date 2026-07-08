@@ -1,3 +1,20 @@
 {
-  "markdown_template": "IONIQ 5는 ICCU(통합충전제어장치) 12V 배터리 리콜이 이미 있습니다(ICCU {iccu_campaigns}). 최근 90일간 신고 {recent_count}건 중 {iccu_hit_count}건({iccu_ratio}%)이 ICCU 고장·12V 배터리 방전 증상과 일치해, 신고 이력이 이미 이 리콜과 강하게 연결되어 있습니다.\n\n대표 원문: (ODINO {odino_1}, {date_1}) / (ODINO {odino_2}, {date_2})\n\n리콜 정비(ICCU 교체) 이후에도 동일 증상이 재발했다고 신고한 사례도 있습니다(ODINO {odino_recur}, {date_recur}) — 리콜 대상이라도 정비 이력을 유지하고 재발 시 재점검을 받으시길 권장합니다."
+  "headline": "IONIQ 5의 최근 신고 대부분({iccu_ratio}%)은 이미 등록된 ICCU 12V 배터리 리콜로 설명됩니다.",
+  "chips": ["IONIQ 5", "ICCU 리콜 보유", "최근 90일 {iccu_ratio}% 증상 일치", "정비 후 재발 사례 있음"],
+  "sections": [
+    {
+      "title": "리콜 현황",
+      "body": "IONIQ 5는 ICCU(통합충전제어장치) 12V 배터리 리콜이 이미 있습니다(ICCU {iccu_campaigns}). 최근 90일 신고 {recent_count}건 중 {iccu_hit_count}건({iccu_ratio}%)이 이 리콜 증상과 일치해, 신고 이력이 이미 이 리콜과 강하게 연결되어 있습니다.",
+      "badges": ["{iccu_campaigns}"]
+    },
+    {
+      "title": "재발 사례",
+      "body": "리콜 정비(ICCU 교체) 이후에도 동일 증상이 재발했다고 신고한 사례가 있습니다(ODINO {odino_recur}, {date_recur}). 리콜 대상이라도 정비 이력을 유지하고 재발 시 재점검을 받으시길 권장합니다.",
+      "badges": ["ODINO {odino_recur}"]
+    }
+  ],
+  "confidence": {
+    "level": "높음",
+    "note": "최근 90일 신고의 {iccu_ratio}%가 이미 등록된 ICCU 리콜 증상과 일치해 연결성이 뚜렷합니다. 다만 신고는 미검증 소비자 제보이며 개별 차량의 진단이 아닙니다."
+  }
 }
