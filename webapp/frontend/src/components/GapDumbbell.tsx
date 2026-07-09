@@ -38,11 +38,14 @@ export default function GapDumbbell({ data, modelIds }: { data: GapResponse; mod
     <div className="card flex h-full flex-col p-6">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[13px] font-semibold" style={{ color: 'var(--color-ink)' }}>
-            미국 신고는 한국 리콜보다 빨랐다 — 최대 152일
+          <h3 className="flex items-center gap-2 text-[13px] font-semibold" style={{ color: 'var(--color-ink)' }}>
+            한·미 결함 인지 시차 분석
+            <span className="rounded-full px-2 py-0.5 text-[11px] font-medium" style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}>
+              최대 152일 선행
+            </span>
           </h3>
           <p className="mt-0.5 text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
-            한·미 시차 · 대표 {rows.length}건
+            NHTSA 소비자 불만 접수와 국내 공식 리콜 발표 간의 소요 기간 비교
           </p>
         </div>
         <span className="shrink-0 text-xs text-slate-400">클릭 시 시그널 상세로 이동</span>
@@ -144,11 +147,13 @@ export default function GapDumbbell({ data, modelIds }: { data: GapResponse; mod
         })}
       </div>
 
-      <div className="mt-4 flex items-end justify-between gap-3 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
+      {/* 좁은 폭(대시보드 2단 flex 레이아웃)에서 justify-between 한 줄로 두면 오른쪽 출처
+          표기에 밀려 잘려 보였다 — 세로로 쌓아 항상 전체 문장이 보이게 함. */}
+      <div className="mt-4 flex flex-col gap-1 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
         <p className="text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
           {data.excluded_note} · * 한국 발표는 확인됐으나 시정 개시 정보가 없는 건
         </p>
-        <p className="shrink-0 whitespace-nowrap text-[9px]" style={{ color: 'var(--color-ink-muted)' }}>
+        <p className="whitespace-nowrap text-[9px]" style={{ color: 'var(--color-ink-muted)' }}>
           {SOURCE_LINE}
         </p>
       </div>
