@@ -8,7 +8,7 @@ import KpiStrip from '../components/KpiStrip'
 import HeroSignalCard from '../components/HeroSignalCard'
 import SignalCardGrid from '../components/SignalCardGrid'
 import GapDumbbell from '../components/GapDumbbell'
-import Heatmap from '../components/Heatmap'
+import RidgelinePlot from '../components/RidgelinePlot'
 import Skeleton from '../components/Skeleton'
 
 export default function Dashboard() {
@@ -52,9 +52,9 @@ export default function Dashboard() {
 
       {signals.data ? <SignalCardGrid cards={signals.data.signals} /> : <Skeleton height={200} />}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {gap.data ? <GapDumbbell data={gap.data} modelIds={modelIds} /> : <Skeleton height={300} />}
-        {heatmap.data ? <Heatmap data={heatmap.data} modelIds={modelIds} /> : <Skeleton height={300} />}
+      <div className="flex flex-col items-stretch gap-6 lg:flex-row">
+        <div className="flex-1">{gap.data ? <GapDumbbell data={gap.data} modelIds={modelIds} /> : <Skeleton height={300} />}</div>
+        <div className="flex-1">{heatmap.data ? <RidgelinePlot data={heatmap.data} modelIds={modelIds} /> : <Skeleton height={300} />}</div>
       </div>
 
       <Link

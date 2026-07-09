@@ -87,6 +87,21 @@ body {
   display: none;
 }
 
+/* react-force-graph-2d(SemanticNetworkGraph)의 내부 float-tooltip 라이브러리가 <style>을 직접
+   주입해 .float-tooltip-kap 클래스에 어두운 툴팁 스타일을 건다(node_modules/float-tooltip/dist
+   확인). 로드 순서를 예측할 수 없어 !important로 덮어써 다른 차트와 동일한 글래스모피즘으로 통일. */
+.float-tooltip-kap {
+  background: rgba(255, 255, 255, 0.8) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border: 1px solid rgba(255, 255, 255, 0.4) !important;
+  color: #334155 !important;
+  font: 500 12px "HyundaiSans", "Montserrat", "Pretendard", system-ui, sans-serif !important;
+  padding: 6px 10px !important;
+  border-radius: 10px !important;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1) !important;
+}
+
 @keyframes page-fade-in {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }

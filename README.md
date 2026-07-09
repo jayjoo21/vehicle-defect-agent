@@ -60,6 +60,87 @@ OPENAI_API_KEY=sk-...
 
 > v0 현재 시점에는 `llm/adapter.py`의 실제 provider 연동 로직이 아직 없다(mock만 지원). 키를 넣어도 `NotImplementedError`가 발생한다 — 실제 연동은 이후 버전 작업.
 
+
+## 시스템 아키텍처
+```mermaid
+flowchart LR
+    USER(["👤 사용자 브라우저"])
+
+    subgraph FRONTEND["💻 프론트엔드 — React + Vite + TS (webapp/frontend)"]
+        PAGES["pages/<br/>Dashboard · MyCar · Chat · ReportsHub"]
+        APILIB["lib/api.ts"]
+        SSELIB["lib/sse.ts"]
+    end
+
+    subgraph BACKEND["⚙️ 백엔드 — FastAPI (webapp/backend)"]
+        ROUTERS["routers/<br/>signals · vehicles · reports · chat"]
+        ENGINE["engine/<br/>episode · domains · state"]
+        LLM["llm/adapter.py<br/>LLM_PROVIDER=mock (기본값)"]
+        MOCKJSON[("mock_responses/answer/*.json")]
+        DB[("SQLite<br/>data/app.db")]
+    end
+
+    subgraph EXTLLM["🤖 외부 LLM (v0 이후 연동 예정, 현재 미사용)"]
+        ANTH(["Anthropic API"])
+        OPENAI(["OpenAI API"])
+    end
+
+    subgraph PIPE["🛠️ 데이터 파이프라인 — scripts/ (오프라인 배치, 1회성)"]
+        PREP["nhtsa_data_prep.py<br/>b1_detect.py"]
+        RECALL_FETCH["리콜 수집 스크립트"]
+        KOTSA_PREP["kotsa_prep.py"]
+        MOLIT_PARSE["molit_extract.py<br/>molit_parse.py"]
+        SEED["seed.py / seed_manual.py"]
+    end
+
+    subgraph DATA["💾 정제 데이터 (data/processed, data/recalls)"]
+        PROCESSED[("data/processed/*.csv")]
+        RECALLS[("data/recalls/*.csv")]
+    end
+
+    subgraph EXT["🌐 외부 원본 데이터"]
+        NHTSA_CMPL[("NHTSA FLAT_CMPL.txt<br/>소비자 불만, 1.46GB")]
+        NHTSA_API(["NHTSA Recalls API"])
+        KOTSA_CSV[("KOTSA 리콜대수 CSV")]
+        MOLIT_PDF[("국토부 보도자료 PDF")]
+    end
+
+    %% 사용자 <-> 프론트엔드
+    USER -->|"HTTPS"| PAGES
+    PAGES --> APILIB
+    PAGES --> SSELIB
+
+    %% 프론트엔드 <-> 백엔드
+    APILIB -->|"HTTP GET, JSON (REST) /api/summary, /api/signals 등"| ROUTERS
+    SSELIB -->|"HTTP POST + SSE 스트리밍 (text/event-stream) /api/chat"| ROUTERS
+    FRONTEND -.->|"프로덕션 빌드: dist/ 정적 파일 서빙 (Docker)"| BACKEND
+
+    %% 백엔드 내부
+    ROUTERS -->|"SELECT (SQL)"| DB
+    ROUTERS -->|"함수 호출"| ENGINE
+    ROUTERS -->|"role='answer' 호출"| LLM
+    LLM -->|"mock 모드: 템플릿 JSON 읽기"| MOCKJSON
+    LLM -.->|"실제 모드(v0 이후): HTTPS REST"| ANTH
+    LLM -.->|"실제 모드(v0 이후): HTTPS REST"| OPENAI
+
+    %% 원본 데이터 -> 파이프라인
+    NHTSA_CMPL -->|"pandas 청크 읽기 (tab-sep, latin-1)"| PREP
+    NHTSA_API -->|"HTTP GET, JSON"| RECALL_FETCH
+    KOTSA_CSV -->|"pandas 읽기 (cp949)"| KOTSA_PREP
+    MOLIT_PDF -->|"pdfplumber 텍스트 추출"| MOLIT_PARSE
+
+    %% 파이프라인 -> 정제 데이터
+    PREP -->|"CSV 저장 (utf-8-sig)"| PROCESSED
+    RECALL_FETCH -->|"CSV 저장"| RECALLS
+    KOTSA_PREP -->|"CSV 저장"| PROCESSED
+    MOLIT_PARSE -->|"CSV 저장"| PROCESSED
+
+    %% 정제 데이터 -> 시딩 -> DB
+    PROCESSED -->|"파일 읽기 (pandas)"| SEED
+    RECALLS -->|"파일 읽기 (pandas)"| SEED
+    SEED -->|"INSERT (SQL, 1회 시딩)"| DB
+
+
 ## 프로젝트 구조
 
 ```

@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { FileText, ChevronDown } from 'lucide-react'
 import type { ChatAnswer } from '../lib/types'
 import { renderMarkdown } from '../lib/markdown'
 import { linkifyGlossary } from '../lib/glossary'
+import { buildSemanticGraph } from '../lib/semanticGraph'
 import { DISCLAIMER } from '../lib/tokens'
+import SourceChips from './SourceChips'
+import SourceModal from './SourceModal'
+import SemanticNetworkGraph from './SemanticNetworkGraph'
 
 function Badge({ text }: { text: string }) {
   return (
@@ -19,17 +23,24 @@ function Badge({ text }: { text: string }) {
 
 // 6.6단계: 답변을 결론 한 줄 -> 상태 칩 행 -> 섹션 카드 -> 원문 인용 접이식 -> 고지문 순으로 구조화 렌더링.
 // structured가 없는 경우(과거 캐시 등 방어적 상황)는 기존 markdown 렌더러로 폴백한다.
-export default function ChatAnswerCard({ answer }: { answer: ChatAnswer }) {
+export default function ChatAnswerCard({ question, answer }: { question: string; answer: ChatAnswer }) {
   const [quotesOpen, setQuotesOpen] = useState(false)
+  const [sourceModal, setSourceModal] = useState<string | null>(null)
   const s = answer.structured
+  // sources(odino/campaign)에 실린 실제 부품·캠페인 정보로부터 그래프를 구성 — 근거가 없으면
+  // 빈 그래프를 반환하고 SemanticNetworkGraph가 자체 더미 데이터로 대체한다.
+  const graph = useMemo(() => buildSemanticGraph(question, answer.sources), [question, answer.sources])
 
   if (!s) {
     return (
       <div className="card p-6">
         <div className="text-sm leading-relaxed">{renderMarkdown(answer.markdown)}</div>
+        <SemanticGraphSection graph={graph} />
+        <SourceChips onSelect={setSourceModal} />
         <p className="mt-4 border-t pt-3 text-[11px]" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
           {DISCLAIMER}
         </p>
+        <SourceModal open={sourceModal != null} title={sourceModal} onClose={() => setSourceModal(null)} />
       </div>
     )
   }
@@ -118,9 +129,26 @@ export default function ChatAnswerCard({ answer }: { answer: ChatAnswer }) {
         </Link>
       )}
 
+      <SemanticGraphSection graph={graph} />
+
+      <SourceChips onSelect={setSourceModal} />
+
       <p className="mt-4 border-t pt-3 text-[11px]" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
         {DISCLAIMER}
       </p>
+
+      <SourceModal open={sourceModal != null} title={sourceModal} onClose={() => setSourceModal(null)} />
+    </div>
+  )
+}
+
+function SemanticGraphSection({ graph }: { graph: ReturnType<typeof buildSemanticGraph> }) {
+  return (
+    <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
+      <p className="mb-2 text-[12px] font-medium" style={{ color: 'var(--color-ink-muted)' }}>
+        시맨틱 분석 그래프 — 증상 · 부품 · 리콜 캠페인 연결
+      </p>
+      <SemanticNetworkGraph data={graph} />
     </div>
   )
 }

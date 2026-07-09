@@ -1,14 +1,70 @@
 import { Suspense, useEffect, useRef, useState } from 'react'
 import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Html, useGLTF } from '@react-three/drei'
+import { useReducedMotion } from 'framer-motion'
 import * as THREE from 'three'
 import type { HotspotDef } from '../lib/hotspots'
 import type { VehicleDomain } from '../lib/types'
+import type { SignalState } from '../lib/tokens'
 import { stateColor } from '../lib/tokens'
 import { hotspotSummary } from '../lib/hotspotSummary'
 import StateIcon from './StateIcon'
 
 const AUTO_ROTATE_RAD_PER_SEC = (6 * Math.PI) / 180 // 초당 6도
+const GLOW_BLUE = '#3B82F6'
+
+// SVG 폴백(HotspotDot.tsx)과 동일한 유리질감 툴팁 + 맥박/글로우 인터랙션. 각 마커가 자신의
+// hover 상태를 독립적으로 들고 있어야 해서(핫스팟이 여러 개) 별도 컴포넌트로 분리했다.
+function Hotspot3DMarker({
+  position,
+  color,
+  state,
+  label,
+  summary,
+  selected,
+  onSelect,
+}: {
+  position: [number, number, number]
+  color: string
+  state: SignalState
+  label: string
+  summary: string
+  selected: boolean
+  onSelect: () => void
+}) {
+  const reduceMotion = useReducedMotion()
+  const [hovered, setHovered] = useState(false)
+  const active = selected || hovered
+
+  // distanceFactor를 절대 쓰지 말 것: drei의 Html.js가 el.style.transform에
+  // scale(objectScale(camera) * distanceFactor)를 그대로 꽂아버려서, 카메라가 모델에
+  // 가까이 붙을수록(작은 차종일수록) 툴팁 전체가 CSS 클래스와 무관하게 거대해지는 버그의
+  // 원인이었다 — Tailwind로는 절대 못 잡는 인라인 transform이라 렌더링을 직접 봐야만 알 수 있었음.
+  // distanceFactor를 아예 안 주면 drei가 scale=1로 고정하고 순수 화면좌표(translate3d)만 적용한다.
+  return (
+    <Html position={position} center zIndexRange={[10, 0]}>
+      <button
+        onClick={onSelect}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
+        className="group relative block"
+      >
+        <span
+          className={`block rounded-full transition-all duration-300 ${
+            active ? 'scale-110 ring-4 ring-blue-500/30' : `ring-2 ring-white ${reduceMotion ? '' : 'animate-pulse'}`
+          }`}
+          style={{ width: 5, height: 5, backgroundColor: active ? GLOW_BLUE : color }}
+        />
+        <div className="pointer-events-none absolute -top-8 left-1/2 z-10 flex -translate-x-1/2 translate-y-1 items-center gap-1 whitespace-nowrap rounded-full border border-white/40 bg-white/80 px-2 py-1 text-[12px] font-medium leading-tight text-slate-700 opacity-0 shadow-xl backdrop-blur-md transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100">
+          <StateIcon state={state} size={10} color={color} />
+          <span>
+            {label} · {summary}
+          </span>
+        </div>
+      </button>
+    </Html>
+  )
+}
 
 // hotspots.ts는 400x200 SVG 좌표계(x=370 전면~40 후면, y=60 상단~160 바닥)로 정의돼 있다.
 // 실제 glb 모델의 정확한 스케일·원점을 알 수 없으므로(에이전트 환경에 브라우저가 없어
@@ -109,24 +165,16 @@ function CarModel({
           const color = stateColor[d.state]
           const summary = hotspotSummary(d)
           return (
-            <Html key={h.domain} position={position} center distanceFactor={10} zIndexRange={[10, 0]}>
-              <button onClick={() => onSelect(h.domain)} className="group relative block">
-                {/* 점 크기 1/3 축소 — SVG 버전(HotspotDot)과 동일하게 아이콘은 툴팁으로 옮김 */}
-                <span
-                  className="block rounded-full ring-2 ring-white"
-                  style={{ width: 5, height: 5, backgroundColor: color, boxShadow: selectedDomain === h.domain ? `0 0 0 3px ${color}55` : undefined }}
-                />
-                <div
-                  className="pointer-events-none absolute left-1/2 top-full z-10 mt-1.5 hidden -translate-x-1/2 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] text-white group-hover:flex"
-                  style={{ backgroundColor: '#0B1220' }}
-                >
-                  <StateIcon state={d.state} size={10} color={color} />
-                  <span>
-                    {h.label} · {summary}
-                  </span>
-                </div>
-              </button>
-            </Html>
+            <Hotspot3DMarker
+              key={h.domain}
+              position={position}
+              color={color}
+              state={d.state}
+              label={h.label}
+              summary={summary}
+              selected={selectedDomain === h.domain}
+              onSelect={() => onSelect(h.domain)}
+            />
           )
         })}
     </group>

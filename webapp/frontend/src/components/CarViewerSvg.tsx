@@ -3,6 +3,7 @@ import type { BodyType } from '../lib/bodyType'
 import type { VehicleDomain } from '../lib/types'
 import { hotspotSummary } from '../lib/hotspotSummary'
 import HotspotDot from './HotspotDot'
+import GridOverlay from './GridOverlay'
 
 const VIEW_W = 400
 const VIEW_H = 200
@@ -37,12 +38,8 @@ export default function CarViewerSvg({
   const hotspots = HOTSPOTS_BY_BODY_TYPE[bodyType]
 
   return (
-    <div
-      className="relative aspect-video min-h-[360px] w-full overflow-hidden rounded-2xl"
-      style={{
-        background: 'radial-gradient(ellipse 60% 55% at 50% 75%, var(--color-navy-soft) 0%, transparent 70%)',
-      }}
-    >
+    <div className="relative aspect-video min-h-[360px] w-full overflow-hidden rounded-2xl bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-100 to-transparent">
+      <GridOverlay />
       <div className="absolute left-6 top-6">
         <div className="text-lg font-semibold" style={{ color: 'var(--color-ink)' }}>
           {model}

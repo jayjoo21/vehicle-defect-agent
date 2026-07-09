@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
+import { ScanSearch } from 'lucide-react'
 import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
 import { useMyCar } from '../lib/useMyCar'
@@ -81,26 +82,26 @@ export default function MyCar() {
       {/* 좌측: 정보 기둥 — 하나의 카드로 묶음 */}
       <div className="card order-2 flex flex-col gap-6 p-6 lg:order-1">
         <div className="flex items-start justify-between">
-          <div>
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-3xl font-bold" style={{ color: 'var(--color-navy)' }}>
-                {map.data.model}
-              </h1>
-              <button
-                onClick={() => setSubscribeOpen(true)}
-                className="btn-tension inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium"
-                style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}
-              >
-                🔔 알림 받기
-              </button>
-            </div>
-            <p className="text-sm" style={{ color: 'var(--color-ink-muted)' }}>
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-3xl font-extrabold tracking-tight" style={{ color: 'var(--color-navy)' }}>
+              {map.data.model}
+            </h1>
+            <span className="rounded-md bg-slate-100 px-2 py-1 text-sm font-medium text-slate-600">
               {map.data.year}년식
-            </p>
+            </span>
           </div>
-          <button onClick={reset} className="text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
-            다른 차로 변경
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setSubscribeOpen(true)}
+              className="btn-tension inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium"
+              style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}
+            >
+              🔔 알림 받기
+            </button>
+            <button onClick={reset} className="text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
+              다른 차로 변경
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-4 text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
@@ -194,19 +195,19 @@ export default function MyCar() {
               <DomainDetailCard domain={selected} model={map.data.model} />
             </motion.div>
           ) : (
-            <motion.p
+            <motion.div
               key="empty"
               style={{ overflow: 'hidden' }}
               initial={{ opacity: 0, height: 0 }}
               animate={{ opacity: 1, height: 'auto' }}
               exit={{ opacity: 0, height: 0 }}
               transition={{ duration: 0.25, ease: 'easeInOut' }}
-              className="card p-6 text-sm"
             >
-              <span style={{ color: 'var(--color-ink-muted)' }}>
-                도메인을 선택하면 관련 리콜·신고 상세 정보가 여기에 표시됩니다.
-              </span>
-            </motion.p>
+              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 px-6 py-10 text-center">
+                <ScanSearch className="h-12 w-12 text-slate-300" strokeWidth={1.25} />
+                <p className="text-sm text-slate-500">도메인을 선택하면 관련 리콜·신고 상세 정보가 여기에 표시됩니다.</p>
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>

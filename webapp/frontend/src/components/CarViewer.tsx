@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import CarViewer3D from './CarViewer3D'
 import CarViewerSvg from './CarViewerSvg'
 import CarViewerErrorBoundary from './CarViewerErrorBoundary'
+import GridOverlay from './GridOverlay'
 import { bodyTypeOf, modelGlbPath } from '../lib/bodyType'
 import { HOTSPOTS_BY_BODY_TYPE } from '../lib/hotspots'
 import type { VehicleDomain } from '../lib/types'
@@ -19,7 +20,9 @@ function supportsWebGL(): boolean {
 
 type Mode = 'checking' | '3d' | 'svg'
 
-const VIEWER_BG = 'radial-gradient(ellipse 60% 55% at 50% 75%, var(--color-navy-soft) 0%, transparent 70%)'
+// '스캐닝 스테이지' 느낌의 배경 — 중앙이 살짝 밝은 슬레이트 방사형 그라데이션(Tailwind v4의
+// var(--tw-gradient-stops) 커스텀 그라데이션 패턴).
+const STAGE_BG_CLASS = 'bg-[radial-gradient(ellipse_at_center,_var(--tw-gradient-stops))] from-slate-100 to-transparent'
 
 // 3D(R3F)가 기본이고, WebGL 미지원·로딩 3초 초과·런타임 에러 시 SVG 폴백으로 전환한다.
 // 폴백은 핫스팟 배치·상태색·클릭 동작이 3D와 동일해야 하므로 CarViewerSvg를 그대로 재사용.
@@ -57,7 +60,7 @@ export default function CarViewer({
   }, [mode, loaded])
 
   if (mode === 'checking') {
-    return <div className="aspect-video min-h-[360px] rounded-2xl" style={{ background: VIEWER_BG }} />
+    return <div className={`aspect-video min-h-[360px] rounded-2xl ${STAGE_BG_CLASS}`} />
   }
 
   if (mode === 'svg') {
@@ -75,7 +78,8 @@ export default function CarViewer({
   }
 
   return (
-    <div className="relative aspect-video min-h-[360px] w-full overflow-hidden rounded-2xl" style={{ background: VIEWER_BG }}>
+    <div className={`relative aspect-video min-h-[360px] w-full overflow-hidden rounded-2xl ${STAGE_BG_CLASS}`}>
+      <GridOverlay />
       <div className="pointer-events-none absolute left-6 top-6 z-10">
         <div className="text-lg font-semibold" style={{ color: 'var(--color-ink)' }}>
           {model}

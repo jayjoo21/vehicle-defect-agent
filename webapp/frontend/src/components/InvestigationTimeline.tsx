@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { motion, useReducedMotion, AnimatePresence } from 'framer-motion'
-import { Car, Search, ShieldAlert, GitCompare, CheckCircle, HelpCircle, Loader2, ChevronDown, type LucideIcon } from 'lucide-react'
+import { Car, Search, ShieldAlert, GitCompare, CheckCircle, HelpCircle, ChevronDown, type LucideIcon } from 'lucide-react'
 import type { ChatStep } from '../lib/types'
+import SemanticSearchLoader from './SemanticSearchLoader'
 
 const ICON_MAP: Record<string, LucideIcon> = {
   car: Car,
@@ -91,9 +92,8 @@ export default function InvestigationTimeline({ steps, pending }: { steps: ChatS
           })}
         </AnimatePresence>
         {pending && (
-          <li className="flex items-center gap-2 text-[13px]" style={{ color: 'var(--color-ink-muted)' }}>
-            <Loader2 size={16} strokeWidth={1.5} className={reduceMotion ? '' : 'animate-spin'} />
-            조사 중...
+          <li>
+            <SemanticSearchLoader />
           </li>
         )}
       </ol>

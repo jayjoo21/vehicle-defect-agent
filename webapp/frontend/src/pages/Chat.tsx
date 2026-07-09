@@ -129,7 +129,7 @@ export default function Chat() {
                 </div>
                 <InvestigationTimeline steps={turn.steps} pending={turn.pending} />
                 {turn.error && <p className="text-sm text-red-600">오류: {turn.error}</p>}
-                {turn.answer && <ChatAnswerCard answer={turn.answer} />}
+                {turn.answer && <ChatAnswerCard question={turn.question} answer={turn.answer} />}
               </div>
             ))}
           </div>
