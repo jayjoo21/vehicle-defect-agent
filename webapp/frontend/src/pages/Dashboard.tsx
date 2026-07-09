@@ -1,12 +1,15 @@
 import { useMemo } from 'react'
+import { Link } from 'react-router-dom'
+import { ArrowRight } from 'lucide-react'
 import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
+import FilterBar from '../components/FilterBar'
 import KpiStrip from '../components/KpiStrip'
 import HeroSignalCard from '../components/HeroSignalCard'
 import SignalCardGrid from '../components/SignalCardGrid'
 import GapDumbbell from '../components/GapDumbbell'
 import Heatmap from '../components/Heatmap'
-import RecentReports from '../components/RecentReports'
+import Skeleton from '../components/Skeleton'
 
 export default function Dashboard() {
   const summary = useFetch(api.summary, [])
@@ -32,6 +35,8 @@ export default function Dashboard() {
         상황판
       </h1>
 
+      <FilterBar />
+
       {summary.data?.hero && <HeroSignalCard hero={summary.data.hero} />}
 
       {summary.data ? (
@@ -42,26 +47,24 @@ export default function Dashboard() {
           </p>
         </div>
       ) : (
-        <SkeletonBlock height={100} />
+        <Skeleton height={100} />
       )}
 
-      {signals.data ? <SignalCardGrid cards={signals.data.signals} /> : <SkeletonBlock height={200} />}
+      {signals.data ? <SignalCardGrid cards={signals.data.signals} /> : <Skeleton height={200} />}
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {gap.data ? <GapDumbbell data={gap.data} modelIds={modelIds} /> : <SkeletonBlock height={300} />}
-        {heatmap.data ? <Heatmap data={heatmap.data} modelIds={modelIds} /> : <SkeletonBlock height={300} />}
+        {gap.data ? <GapDumbbell data={gap.data} modelIds={modelIds} /> : <Skeleton height={300} />}
+        {heatmap.data ? <Heatmap data={heatmap.data} modelIds={modelIds} /> : <Skeleton height={300} />}
       </div>
 
-      {signals.data ? <RecentReports cards={signals.data.signals} /> : <SkeletonBlock height={150} />}
+      <Link
+        to="/reports"
+        className="card card-hover flex items-center justify-between p-5 text-sm font-medium"
+        style={{ color: 'var(--color-navy)' }}
+      >
+        시그널 리포트 전체 보기
+        <ArrowRight size={16} strokeWidth={1.75} />
+      </Link>
     </div>
-  )
-}
-
-function SkeletonBlock({ height }: { height: number }) {
-  return (
-    <div
-      className="animate-pulse rounded-xl"
-      style={{ height, backgroundColor: 'var(--color-bg-subtle)' }}
-    />
   )
 }

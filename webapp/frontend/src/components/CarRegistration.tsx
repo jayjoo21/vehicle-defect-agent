@@ -41,7 +41,7 @@ export default function CarRegistration({ onComplete }: { onComplete: (model: st
                 setModel(m.model)
                 setStep(2)
               }}
-              className="rounded-lg border p-4 text-left transition-colors hover:border-[var(--color-navy)]"
+              className="card card-hover btn-tension rounded-lg p-4 text-left hover:border-[var(--color-navy)]"
               style={{ borderColor: 'var(--color-border)' }}
             >
               <div className="text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
@@ -76,7 +76,7 @@ export default function CarRegistration({ onComplete }: { onComplete: (model: st
           <button
             key={y}
             onClick={() => model && onComplete(model, String(y))}
-            className="rounded-lg border py-3 text-sm font-medium transition-colors hover:border-[var(--color-navy)]"
+            className="card card-hover btn-tension rounded-lg py-3 text-sm font-medium hover:border-[var(--color-navy)]"
             style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink)' }}
           >
             {y}

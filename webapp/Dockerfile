@@ -1,7 +1,7 @@
 # 빌드 컨텍스트는 반드시 저장소 루트여야 한다 (scripts/, data/processed, data/recalls를
 # 참조하기 때문). 저장소 루트에서 다음과 같이 빌드한다:
-#   docker build -f webapp/Dockerfile -t precall .
-#   docker run -p 8000:8000 precall
+#   docker build -f webapp/Dockerfile -t mobiscope .
+#   docker run -p 8000:8000 mobiscope
 
 # ---- 1단계: 프론트엔드 빌드 ----
 FROM node:20-slim AS frontend-build

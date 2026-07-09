@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { FileText, ChevronDown } from 'lucide-react'
 import type { ChatAnswer } from '../lib/types'
 import { renderMarkdown } from '../lib/markdown'
+import { linkifyGlossary } from '../lib/glossary'
 import { DISCLAIMER } from '../lib/tokens'
 
 function Badge({ text }: { text: string }) {
@@ -24,7 +25,7 @@ export default function ChatAnswerCard({ answer }: { answer: ChatAnswer }) {
 
   if (!s) {
     return (
-      <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
+      <div className="card p-6">
         <div className="text-sm leading-relaxed">{renderMarkdown(answer.markdown)}</div>
         <p className="mt-4 border-t pt-3 text-[11px]" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
           {DISCLAIMER}
@@ -34,9 +35,9 @@ export default function ChatAnswerCard({ answer }: { answer: ChatAnswer }) {
   }
 
   return (
-    <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
+    <div className="card p-6">
       <p className="text-[16px] font-semibold leading-snug" style={{ color: 'var(--color-navy)' }}>
-        {s.headline}
+        {linkifyGlossary(s.headline)}
       </p>
 
       {s.chips.length > 0 && (
@@ -60,7 +61,7 @@ export default function ChatAnswerCard({ answer }: { answer: ChatAnswer }) {
               {sec.title}
             </p>
             <p className="text-[13px] leading-relaxed" style={{ color: 'var(--color-ink)' }}>
-              {sec.body}
+              {linkifyGlossary(sec.body)}
             </p>
             {sec.badges.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">

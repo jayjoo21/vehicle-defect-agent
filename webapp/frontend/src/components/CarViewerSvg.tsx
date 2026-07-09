@@ -38,10 +38,9 @@ export default function CarViewerSvg({
 
   return (
     <div
-      className="relative overflow-hidden rounded-2xl"
+      className="relative aspect-video min-h-[360px] w-full overflow-hidden rounded-2xl"
       style={{
         background: 'radial-gradient(ellipse 60% 55% at 50% 75%, var(--color-navy-soft) 0%, transparent 70%)',
-        aspectRatio: '16/9',
       }}
     >
       <div className="absolute left-6 top-6">

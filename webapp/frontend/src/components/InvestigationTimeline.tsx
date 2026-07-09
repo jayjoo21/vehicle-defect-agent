@@ -39,7 +39,7 @@ export default function InvestigationTimeline({ steps, pending }: { steps: ChatS
   }
 
   return (
-    <div className="rounded-xl border p-4" style={{ borderColor: 'var(--color-border)' }}>
+    <div className="card p-4">
       {steps.length > 0 && (
         <button
           onClick={() => setCollapsed(true)}

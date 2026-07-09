@@ -5,7 +5,7 @@ export interface MyCar {
   year: string
 }
 
-const STORAGE_KEY = 'precall:my-car'
+const STORAGE_KEY = 'mobiscope:my-car'
 
 export function loadMyCar(): MyCar | null {
   try {

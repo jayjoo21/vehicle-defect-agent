@@ -8,10 +8,7 @@ export default function SignalCard({ card }: { card: SignalCardData }) {
   const color = stateColor[card.state]
 
   return (
-    <div
-      className="flex flex-col gap-3 rounded-xl border p-6"
-      style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}
-    >
+    <div className="card card-hover flex flex-col gap-3 p-6">
       <div className="flex items-start justify-between">
         <Link to={`/signals/${card.id}`} className="text-lg font-semibold hover:underline" style={{ color: 'var(--color-ink)' }}>
           {card.model}

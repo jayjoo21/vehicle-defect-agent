@@ -64,7 +64,7 @@ export default function LifecycleTimeline({
   const yTicks = [0, maxCount / 2, maxCount]
 
   return (
-    <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
+    <div className="card p-6">
       <h3 className="mb-1 text-sm font-semibold" style={{ color: 'var(--color-navy)' }}>
         {title}
       </h3>

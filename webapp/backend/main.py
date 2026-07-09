@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 
 from routers import chat, reports, signals, vehicles
 
-app = FastAPI(title="PRECALL API")
+app = FastAPI(title="MOBISCOPE API")
 
 # 배포 환경(Docker)은 프론트를 이 서버가 같은 오리진에서 직접 서빙하므로 CORS가 필요 없다.
 # 로컬 개발(Vite :5173 → 이 서버 :8000)만 origin이 갈리므로 그때만 명시 허용.

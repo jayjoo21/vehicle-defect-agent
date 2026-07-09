@@ -26,11 +26,11 @@ export default function Heatmap({ data, modelIds }: { data: HeatmapResponse; mod
   }, [data.cells])
 
   return (
-    <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
-      <h3 className="mb-1 text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
+    <div className="card p-4">
+      <h3 className="mb-0.5 text-[13px] font-semibold" style={{ color: 'var(--color-ink)' }}>
         알람은 특정 차종에 띠를 이룬다
       </h3>
-      <p className="mb-4 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+      <p className="mb-3 text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
         차종×월 히트맵 · 발화(스파이크) 이력이 있는 차종 {data.models.length}개 · 최근 {data.months.length}개월 · 빨강 테두리 = 알람 발화 · 클릭 시 시그널 상세로 이동
       </p>
       <div className="overflow-x-auto">

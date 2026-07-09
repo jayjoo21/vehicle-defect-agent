@@ -20,7 +20,7 @@ export default function DomainDetailCard({ domain, model }: { domain: VehicleDom
   }
 
   return (
-    <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
+    <div className="card p-6">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-lg font-semibold" style={{ color: 'var(--color-ink)' }}>
           {domain.domain}
@@ -114,7 +114,7 @@ export default function DomainDetailCard({ domain, model }: { domain: VehicleDom
 
       <button
         onClick={investigate}
-        className="inline-flex items-center gap-1.5 text-[13px] font-medium"
+        className="btn-tension inline-flex items-center gap-1.5 text-[13px] font-medium"
         style={{ color: 'var(--color-navy)' }}
       >
         <MessageCircle size={14} strokeWidth={1.5} />

@@ -57,7 +57,7 @@ export default function CarViewer({
   }, [mode, loaded])
 
   if (mode === 'checking') {
-    return <div className="rounded-2xl" style={{ background: VIEWER_BG, aspectRatio: '16/9' }} />
+    return <div className="aspect-video min-h-[360px] rounded-2xl" style={{ background: VIEWER_BG }} />
   }
 
   if (mode === 'svg') {
@@ -75,7 +75,7 @@ export default function CarViewer({
   }
 
   return (
-    <div className="relative overflow-hidden rounded-2xl" style={{ background: VIEWER_BG, aspectRatio: '16/9' }}>
+    <div className="relative aspect-video min-h-[360px] w-full overflow-hidden rounded-2xl" style={{ background: VIEWER_BG }}>
       <div className="pointer-events-none absolute left-6 top-6 z-10">
         <div className="text-lg font-semibold" style={{ color: 'var(--color-ink)' }}>
           {model}

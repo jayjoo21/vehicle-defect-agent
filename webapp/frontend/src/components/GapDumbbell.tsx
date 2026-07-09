@@ -34,11 +34,11 @@ export default function GapDumbbell({ data, modelIds }: { data: GapResponse; mod
   const medianPct = (MEDIAN_GAP_DAYS / span) * 100
 
   return (
-    <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
-      <h3 className="mb-1 text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
+    <div className="card p-4">
+      <h3 className="mb-0.5 text-[13px] font-semibold" style={{ color: 'var(--color-ink)' }}>
         미국 신고는 한국 리콜보다 빨랐다 — 최대 152일
       </h3>
-      <p className="mb-3 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+      <p className="mb-2.5 text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
         한·미 시차 · 대표 {rows.length}건 · <span style={{ color: 'var(--color-navy)' }}>●</span> 미국 접수 — <span style={{ color: '#DC2626' }}>●</span>{' '}
         한국 발표 · 회색 점 = 한국 시정 개시일 미확인*
       </p>
@@ -56,7 +56,7 @@ export default function GapDumbbell({ data, modelIds }: { data: GapResponse; mod
         </div>
       </div>
 
-      <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3">
         {rows.map((r, i) => {
           const usPct = (dayOffset(r.us_date, epoch) / span) * 100
           const krPct = (dayOffset(r.kr_date, epoch) / span) * 100

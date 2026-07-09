@@ -61,7 +61,7 @@ export default function SignalCardGrid({ cards }: { cards: SignalCardData[] }) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="rounded-xl border p-6 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
+        <p className="card p-6 text-sm" style={{ color: 'var(--color-ink-muted)' }}>
           현재 이 상태로 감지된 시그널이 없습니다.
         </p>
       ) : (

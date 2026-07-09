@@ -530,3 +530,46 @@ main.py 수정: ① CORS를 ALLOWED_ORIGINS 환경변수 기반으로 변경(기
 
 README.md(저장소 루트, 신규) — 1분 소개, 스크린샷 3장(위 Playwright 캡처), 라이브 데모 URL 자리, 로컬 실행법(Docker 한 줄 / 개발모드 두 터미널), 목 모드 설명과 실 키 꽂는 법, 프로젝트 구조 지도, 문서 읽는 순서(CLAUDE.md → 13_초안v0_스펙 → 06_되감기_K12_확정 → struct_prompt_v2 → webapp/README.md).
 부수 발견·정리: .playwright-mcp/ 디렉터리(Playwright MCP 스크린샷/스냅샷 디버그 산출물)가 이전 세션에서 실수로 git에 커밋되어 있었음 — 이번 세션에서 실수로 전체 삭제했다가 기존 커밋분은 `git checkout --`으로 복원하고, 이번 세션에서 새로 생긴 디버그 파일만 제거. 루트 .gitignore에 `.playwright-mcp/` 추가해 향후 재발 방지(기존 추적 파일 자체를 git rm하는 결정은 이번 작업 범위 밖으로 남김).
+
+7.5단계 (2026-07-09 완료) — 리브랜딩(PRECALL → MOBISCOPE) + 정적 로고 적용
+
+
+텍스트 교체: 앱·문서 전역의 "PRECALL"(FastAPI title, index.html title, 헤더, README 2종)을 "MOBISCOPE"로, docker 이미지 태그 예시(`precall`)와 localStorage 키(`precall:my-car`)도 동일하게 `mobiscope`로 교체. 헤더의 태그라인 "리콜보다 먼저 아는"은 완전 삭제(대체 문구 없음). CLAUDE.md 자체의 과거 세션 기록(위 7단계 등)은 그 시점의 실제 실행 로그이므로 리브랜딩 대상에서 제외(그대로 보존).
+webapp/frontend/src/components/Logo.tsx(신규) — src/assets/logo_mobiscope.png(사용자 제공, 핀마크+체크 아이콘과 MOBISCOPE 워드마크가 이미 합쳐진 완성 로고)를 렌더링. compact prop: true면 헤더용으로 height 32px 고정(width auto), false(기본)면 원본 비율 그대로(발표용). Layout.tsx 헤더의 텍스트 로고를 `<Logo compact />`로 교체.
+webapp/frontend/src/pages/Brand.tsx(신규) + App.tsx에 `/brand` 라우트 추가 — 발표용 페이지, `<Logo />` 원본 비율 큰 사이즈로만 표시(SVG 애니메이션은 사용자가 추후 직접 구현 예정이라 이미지 태그만). 대시보드(랜딩) 상단에는 로고를 넣지 않음(원래도 없었음, 유지).
+폰트: src/index.css에 "HyundaiSans" @font-face 2개(Regular 400·Bold 700, woff2/woff) 선언 — src는 public/fonts/HyundaiSans-{Regular,Bold}.{woff2,woff} 참조. body font-family 스택을 `"HyundaiSans", "Montserrat", "Pretendard", system-ui, ...`로 교체(파일이 없으면 요청이 404로 실패하고 스택의 다음 폰트로 자연 폴백 — Montserrat 자체도 웹폰트로 로드하지 않고 스택에만 명시, 기존 Pretendard와 동일한 패턴). public/fonts/README.md(신규)에 필요한 파일명과 폴백 순서 안내. 루트 README.md에 "폰트 라이선스" 절 신설(출처·라이선스 고지용 한 줄, 현재는 플레이스홀더).
+파비콘: public/favicon.svg를 기존 추상 도형에서 핀마크(지도 마커)+체크 아이콘(로고의 아이콘 부분과 동일한 모티프, 네이비 #002C5F 채움 + 흰색 체크 스트로크)으로 교체. index.html의 참조 경로(`/favicon.svg`)는 변경 없음. 빌드 산출물인 dist/favicon.svg는 변경하지 않음(다음 빌드 시 public/에서 자동 재생성).
+검증: `npx tsc --noEmit` 무오류. `npm run build` 성공 — 콘솔에 HyundaiSans 4개 파일이 "빌드 타임에 resolve 안 됨, 런타임에 resolve 시도" 경고가 뜨는데, 이는 파일이 아직 없다는 걸 보여주는 정상 동작(의도한 폴백 케이스)이며 빌드 자체는 실패하지 않음을 확인.
+한계(명시): 브라우저 미접근으로 헤더/‎/brand 페이지의 실제 렌더링(로고 비율·파비콘 탭 아이콘 표시)은 시각 확인 못함 — 사용자가 `npm run dev`로 직접 확인 필요. 현대산스 폰트 파일 자체는 이번 작업 범위 밖(사용자가 직접 `public/fonts/`에 배치 예정).
+
+
+7.6단계 (2026-07-09 완료) — UI/UX 1차 고도화 (카드 시스템 + 마이크로 인터랙션)
+
+
+index.css에 --color-surface(카드용 흰색)를 페이지 배경 --color-bg(옅은 그레이, slate-50)와 분리하고, `.card`/`.card-hover`(hover 시 translateY(-3px)+그림자 심화)/`.btn-tension`(hover:brightness(.94)+active:scale(.96))/`.skeleton`(shimmer)/`.page-fade-in`/`.scrollbar-hide` 유틸리티 신설 — 기존에 컴포넌트마다 흩어져 있던 `rounded-xl border p-6` + `boxShadow: var(--shadow-card)` 인라인 패턴을 전부 이 클래스로 교체(카드 셸 스타일이 파일마다 미세하게 다르게 벌어지는 걸 방지).
+Footer.tsx(신규), Layout.tsx: 헤더를 sticky+shadow-sm 흰 바로, 배경을 slate-50으로, 라우트 전환마다 재생되는 페이드인(`key={location.pathname}`)을 추가.
+KpiStrip에 lucide 아이콘(Car/Activity/Bell/AlertCircle) 추가, HeroSignalCard의 상태색 테두리 삭제 후 옅은 틴트 배경만 남김. Chat.tsx에 실제 백엔드 detect_scenario() 키워드와 매칭되는 추천 질문 칩 4개(스태거 등장) 추가, 입력 영역을 흰 "독"으로 분리.
+MyCar.tsx: 왼쪽 정보 패널을 카드 하나로 묶고, 도메인 리스트 항목의 hover 효과를 인라인 backgroundColor(선택 시에만 지정)와 Tailwind hover 클래스(비선택 시에만 적용)로 분리해 실제로 동작하게 함 — 인라인 style은 항상 우선 적용되므로, 선택되지 않은 상태에서도 backgroundColor를 계속 지정해두면 Tailwind의 `hover:bg-*`가 영원히 안 먹는 버그가 될 뻔했음(발견해서 미리 회피). 도메인 상세 카드 전환은 framer-motion height 아코디언으로 변경.
+검증: `npx tsc --noEmit` 무오류, `npm run build` 성공.
+
+
+7.7단계 (2026-07-09 완료) — UI/UX 2차 고도화 (밀도·3D 프레이밍 버그·리포트 허브·다크 푸터)
+
+
+CarViewer3D.tsx 버그 수정: 자동회전(useFrame으로 매 프레임 group.rotation.y 증가) 중인 모델의 카메라 프레이밍을, 회전 전 정지 상태의 바운딩박스 8개 꼭짓점을 고정 카메라 축에 투영해 계산하고 있었음 — 이 투영은 계산 시점(회전각 0)에서만 정확하고, 이후 모델이 계속 돌면서 다른 회전각에서는 투영 폭이 계산값을 초과해 차가 프레임 밖으로 삐져나가는(잘리는) 버그였음. Y축 회전에 불변인 바운딩 스피어 반지름(`Box3.getBoundingSphere`) 하나로 가로·세로 거리를 동시에 계산하도록 교체해 회전각과 무관하게 항상 프레임 안에 들어오도록 수정, FRAME_FILL_RATIO도 0.9→0.82로 낮춰 여유를 더 둠. CarViewer.tsx·CarViewerSvg.tsx의 인라인 `aspectRatio:'16/9'`를 Tailwind `aspect-video`+`min-h-[360px]`로 교체하고, MyCar.tsx에서 뷰어를 옥죄던 `sm:w-[60%]` 폭 제한을 제거(우측 컬럼 전체 폭 사용) — 3D 수학 버그와 별개로 뷰어 자체가 좁아 작아 보이던 부분도 함께 해소.
+Dashboard.tsx: FilterBar.tsx(신규, 제조사/기간 토글 + 데이터 내보내기 버튼) 추가 — 백엔드가 이 축의 필터링을 지원하지 않아 전부 더미(제조사·기간 토글은 로컬 선택 상태만 바뀌고 실제 재조회 없음, 내보내기는 "준비 중" 안내만 표시)임을 컴포넌트 상단 주석에 명시. 이미 존재하던 GapDumbbell(한·미 비교)+Heatmap 2단 그리드는 유지하고 패딩(p-6→p-4)·제목 크기(text-sm→text-[13px])만 줄여 밀도를 높임. 대시보드 하단의 RecentReports를 제거하고 "시그널 리포트 전체 보기" 링크로 교체(컴포넌트 자체는 다른 곳에서 안 쓰여 삭제).
+리포트 2-Pane 허브 신설: 기존 ReportView.tsx의 렌더링 로직(메타 카드+지표+마크다운+확신도 접이식+고지문)을 ReportPaper.tsx로 추출(`variant='card'`|`'flat'` — flat은 페이퍼 자체가 표면이라 섹션마다 흰 카드로 다시 감싸지 않음). 신규 ReportsHub.tsx(`/reports`)가 좌측 리포트 목록(신고 있는 시그널 중 report_id 있는 것만, 기존 api.signals() 재사용이라 새 백엔드 엔드포인트 불필요)+우측 A4 비율(최대폭 720px) 흰 페이퍼 UI, PDF 다운로드·공유 버튼은 더미(클릭 시 "준비 중" 안내). Layout.tsx 헤더 네비게이션에 "시그널 리포트" 탭 추가(내 차와 조사 채팅 사이).
+Footer.tsx를 얇은 라이트 푸터에서 `bg-slate-900 text-slate-400` 다크 4열 푸터로 전면 교체 — Col1 로고(이미지 대신 흰 텍스트 워드마크 사용: 실제 로고 PNG가 흰 배경이라 다크 배경에 얹으면 흰 박스로 보여 어울리지 않음)+소개+이메일(placeholder), Col2 바로가기, Col3 데이터 출처(KOTSA·MOLIT·NHTSA, 기존 라이트 푸터와 동일 링크), Col4 법적 고지(이용약관·개인정보처리방침은 실제 문서가 없는 자리표시 링크+면책조항 전문). 최하단에 `Copyright © 2026 MOBISCOPE. All rights reserved.` 한 줄.
+검증: `npx tsc --noEmit` 무오류, `npm run build` 성공, `/reports` 라우트 curl 200 확인.
+한계(명시): 3D 프레이밍 수정은 수학적으로는 회전 불변이 맞지만 브라우저 미접근으로 실제 glb 렌더링에서 차가 온전히 보이는지 시각 확인은 못함 — 사용자가 `npm run dev`로 직접 확인 필요.
+
+
+7.8단계 (2026-07-09 완료) — PDF 내보내기·용어집 툴팁·구독 모달
+
+
+의존성 추가: `html2pdf.js`(jsPDF+html2canvas 번들) 설치. 패키지 자체가 `type.d.ts`를 내장하고 package.json의 `types` 필드가 이를 직접 가리켜(DefinitelyTyped `@types/html2pdf.js`보다 항상 우선 적용됨) 처음엔 `@types/html2pdf.js`도 같이 설치했다가, 그 타입엔 있는 `pagebreak` 옵션이 실제 사용되는 내장 타입엔 없어 빌드 에러 → 내장 타입에 없는 옵션을 코드에서 제거하고 중복 `@types` 패키지를 삭제해 정리. `export =` 형태라 default import(`import html2pdf from 'html2pdf.js'`)에 `esModuleInterop`가 필요해 tsconfig.app.json에 추가(런타임은 Vite가 이미 CJS interop을 처리해 영향 없음, 타입체크만 통과시키는 설정). 번들 크기 약 1.4MB→2.36MB(gzip 670KB)로 증가 — html2canvas+jsPDF가 무거운 라이브러리라 예상된 증가, 이번 범위 밖이라 코드 스플리팅은 손대지 않음.
+Chat.tsx 구조 변경: 기존엔 `turn: Turn | null` 하나만 유지해 새 질문을 하면 이전 대화가 사라지는 구조였음 — "채팅 내역(복수)을 PDF로 내보낸다"는 요청 자체가 여러 턴의 존재를 전제하므로, `turns: Turn[]`로 바꿔 질문마다 배열에 추가되도록 변경(스트리밍 콜백은 항상 배열의 마지막 항목만 갱신하는 `updateLastTurn` 헬퍼로 처리, 동시에 두 질문이 진행 중일 수 없도록 마지막 턴이 pending이면 입력을 막는 기존 규칙 유지). 헤더 우측에 "PDF로 내보내기" 버튼(턴이 1개 이상일 때만 노출) — `printRef`로 감싼 대화 영역 전체를 `html2pdf().from(ref).save()`로 내보내며, 파일명은 `MOBISCOPE_조사리포트_YYYYMMDD.pdf`(로컬 날짜 기준). 내보내기는 화면에 보이는 현재 상태 그대로 캡처하므로(타임라인 접힘·인용 펼침 등 사용자가 토글한 상태 포함), 강제로 펼치는 로직은 넣지 않음.
+용어집 툴팁: lib/glossary.tsx에 하드코딩 더미 딕셔너리 5개(ICCU/ADAS/IEB/OTA/ECU) + `linkifyGlossary(text)`(정규식으로 단어 경계 매칭 후 해당 부분만 GlossaryTerm으로 감싸 반환) + components/GlossaryTerm.tsx(점선 밑줄 + `group-hover`로 부드럽게 나타나는 다크 툴팁, HotspotDot 계열과 톤 일치시킴). 적용 범위는 요청대로 두 곳만: ChatAnswerCard의 구조화 답변 headline·섹션 본문(원문 인용문 자체는 verbatim 원칙 때문에 손대지 않음), MyCar 도메인 리스트의 라벨(`ADAS 카메라`·`ICCU·충전제어`에 실제로 걸림).
+알림 구독 모달: components/SubscribeModal.tsx(framer-motion 배경 페이드+카드 스케일 인, ESC 없이 배경 클릭·X로 닫기) — 이메일 입력 후 "구독하기"를 누르면 로컬 상태만 바뀌어 확인 화면으로 전환되고, 문구에 "(데모 UI — 실제 발송은 아직 연결되어 있지 않습니다)"를 명시해 실제로 이메일이 발송되는 것처럼 오해하지 않도록 함(실제 구독 API 없음). MyCar.tsx 차종명 옆에 "🔔 알림 받기" 버튼 추가해 모달을 띄움.
+검증: `npx tsc --noEmit` 무오류, `npm run build` 성공, dev 서버(`/`, `/chat`, `/my-car`) 전부 curl 200 확인.
+한계(명시): 브라우저 미접근으로 실제 PDF 출력 결과(페이지 나뉨·한글 폰트 렌더링 품질)와 툴팁·모달의 애니메이션 체감은 시각 확인 못함 — 사용자가 직접 브라우저에서 "PDF로 내보내기"를 눌러 결과물을 확인 필요. html2canvas는 CSS `oklch()`/최신 색상 함수를 지원하지 못하는 경우가 있는데, 이 프로젝트는 색상을 전부 hex(`#RRGGBB`)로 쓰고 있어 문제될 가능성은 낮지만 실제 캡처 결과에서 카드 배경색 등이 깨지지 않는지 확인 권장.

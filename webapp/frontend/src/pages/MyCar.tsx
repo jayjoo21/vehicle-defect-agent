@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
 import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
 import { useMyCar } from '../lib/useMyCar'
 import { HOTSPOT_LABELS } from '../lib/hotspots'
+import { linkifyGlossary } from '../lib/glossary'
 import { stateColor, stateLabel } from '../lib/tokens'
 import CarRegistration from '../components/CarRegistration'
 import CarViewer from '../components/CarViewer'
 import DomainDetailCard from '../components/DomainDetailCard'
+import SubscribeModal from '../components/SubscribeModal'
+import Skeleton from '../components/Skeleton'
 
 // 5.5단계: 2열 레이아웃 — 좌측 정보 기둥(차종명/상태 요약/도메인 목록), 우측 상단 3D(60% 크기,
 // sticky). 도메인은 왼쪽 목록에서도, 3D/SVG 뷰어 핫스팟에서도 선택 가능하도록 selectedDomain
@@ -19,6 +23,7 @@ export default function MyCar() {
   const [justRegistered, setJustRegistered] = useState(false)
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
+  const [subscribeOpen, setSubscribeOpen] = useState(false)
 
   const map = useFetch(
     () => (car ? api.vehicleMap(car.model, car.year) : Promise.reject(new Error('등록된 차량 없음'))),
@@ -52,7 +57,7 @@ export default function MyCar() {
   }
 
   if (map.loading) {
-    return <div className="h-64 animate-pulse rounded-2xl" style={{ backgroundColor: 'var(--color-bg-subtle)' }} />
+    return <Skeleton height={320} />
   }
   if (map.error || !map.data) {
     return <p className="text-sm text-red-600">차량 정보를 불러오지 못했습니다: {map.error}</p>
@@ -73,13 +78,22 @@ export default function MyCar() {
 
   return (
     <div className="grid grid-cols-1 items-start gap-8 lg:grid-cols-2">
-      {/* 좌측: 정보 기둥 */}
-      <div className="order-2 flex flex-col gap-6 lg:order-1">
+      {/* 좌측: 정보 기둥 — 하나의 카드로 묶음 */}
+      <div className="card order-2 flex flex-col gap-6 p-6 lg:order-1">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-3xl font-bold" style={{ color: 'var(--color-navy)' }}>
-              {map.data.model}
-            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-3xl font-bold" style={{ color: 'var(--color-navy)' }}>
+                {map.data.model}
+              </h1>
+              <button
+                onClick={() => setSubscribeOpen(true)}
+                className="btn-tension inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium"
+                style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}
+              >
+                🔔 알림 받기
+              </button>
+            </div>
             <p className="text-sm" style={{ color: 'var(--color-ink-muted)' }}>
               {map.data.year}년식
             </p>
@@ -116,15 +130,17 @@ export default function MyCar() {
                 <li key={d.domain}>
                   <button
                     onClick={() => selectDomain(d.domain)}
-                    className="flex w-full items-center justify-between rounded-lg border px-4 py-2.5 text-left text-[13px] transition-colors"
+                    className={`flex w-full items-center justify-between rounded-lg border px-4 py-2.5 text-left text-[13px] transition-all duration-200 ${
+                      isSelected ? '' : 'hover:-translate-y-0.5 hover:bg-slate-50 hover:shadow-sm'
+                    }`}
                     style={{
                       borderColor: isSelected ? color : 'var(--color-border)',
-                      backgroundColor: isSelected ? `${color}0D` : 'transparent',
+                      backgroundColor: isSelected ? `${color}0D` : undefined,
                     }}
                   >
                     <span className="flex items-center gap-2" style={{ color: 'var(--color-ink)' }}>
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
-                      {HOTSPOT_LABELS[d.domain] ?? d.domain}
+                      {linkifyGlossary(HOTSPOT_LABELS[d.domain] ?? d.domain)}
                     </span>
                     <span style={{ color }}>{stateLabel[d.state]}</span>
                   </button>
@@ -147,9 +163,9 @@ export default function MyCar() {
         )}
       </div>
 
-      {/* 우측: 3D/SVG 뷰어(60% 크기) + 선택된 도메인 상세 카드(차 아래), 상단 고정 */}
+      {/* 우측: 3D/SVG 뷰어(전체 폭) + 선택된 도메인 상세 카드(차 아래), 상단 고정 */}
       <div className="order-1 flex flex-col gap-4 lg:sticky lg:top-6 lg:order-2">
-        <div className="mx-auto w-full sm:w-[60%]">
+        <div className="relative w-full">
           <CarViewer
             model={map.data.model}
             year={map.data.year}
@@ -158,15 +174,41 @@ export default function MyCar() {
             onSelect={selectDomain}
             animateIn={justRegistered}
           />
+          {/* 가짜 그림자 — 차 하단에 시각적 안정감을 주는 타원형 블러 */}
+          <div
+            className="pointer-events-none absolute -bottom-3 left-1/2 h-6 w-[65%] -translate-x-1/2 rounded-[50%] blur-md"
+            style={{ background: 'radial-gradient(ellipse, rgba(15,23,42,0.16) 0%, transparent 75%)' }}
+          />
         </div>
 
-        {selected ? (
-          <DomainDetailCard domain={selected} model={map.data.model} />
-        ) : (
-          <p className="rounded-xl border p-6 text-sm" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
-            도메인을 선택하면 관련 리콜·신고 상세 정보가 여기에 표시됩니다.
-          </p>
-        )}
+        <AnimatePresence mode="wait" initial={false}>
+          {selected ? (
+            <motion.div
+              key={selected.domain}
+              style={{ overflow: 'hidden' }}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25, ease: 'easeInOut' }}
+            >
+              <DomainDetailCard domain={selected} model={map.data.model} />
+            </motion.div>
+          ) : (
+            <motion.p
+              key="empty"
+              style={{ overflow: 'hidden' }}
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.25, ease: 'easeInOut' }}
+              className="card p-6 text-sm"
+            >
+              <span style={{ color: 'var(--color-ink-muted)' }}>
+                도메인을 선택하면 관련 리콜·신고 상세 정보가 여기에 표시됩니다.
+              </span>
+            </motion.p>
+          )}
+        </AnimatePresence>
       </div>
 
       {toast && (
@@ -177,6 +219,8 @@ export default function MyCar() {
           {toast}
         </div>
       )}
+
+      <SubscribeModal open={subscribeOpen} onClose={() => setSubscribeOpen(false)} model={map.data.model} />
     </div>
   )
 }

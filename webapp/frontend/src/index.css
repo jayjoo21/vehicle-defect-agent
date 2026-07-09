@@ -1,7 +1,31 @@
 @import "tailwindcss";
 
+/* 현대산스(HyundaiSans) — public/fonts/에 파일을 넣으면 자동 적용.
+   파일이 없는 동안엔 요청이 404로 실패하고 font-family 스택의 다음 폰트(Montserrat 등)로 폴백된다. */
+@font-face {
+  font-family: "HyundaiSans";
+  src:
+    url("/fonts/HyundaiSans-Regular.woff2") format("woff2"),
+    url("/fonts/HyundaiSans-Regular.woff") format("woff");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "HyundaiSans";
+  src:
+    url("/fonts/HyundaiSans-Bold.woff2") format("woff2"),
+    url("/fonts/HyundaiSans-Bold.woff") format("woff");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
-  --color-bg: #FFFFFF;
+  /* 페이지 배경(옅은 그레이)과 카드 표면(흰색)을 분리 — 카드가 배경 위에 뜬 느낌을 그림자만으로 표현한다. */
+  --color-bg: #F8FAFC;
+  --color-surface: #FFFFFF;
   --color-bg-subtle: #F6F7F9;
   --color-navy: #002C5F;
   --color-navy-soft: #E8EEF5;
@@ -15,13 +39,76 @@
   --color-state-resolved: #059669;
 
   --radius-card: 12px;
-  --shadow-card: 0 1px 3px rgba(0, 0, 0, .06);
-  --color-border: #E5E7EB;
+  --shadow-card: 0 1px 2px rgba(15, 23, 42, .04), 0 4px 16px rgba(15, 23, 42, .06);
+  --shadow-card-hover: 0 12px 28px rgba(15, 23, 42, .12);
+  --color-border: #EEF0F3;
 }
 
 body {
   margin: 0;
   background: var(--color-bg);
   color: var(--color-ink);
-  font-family: "Pretendard", system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: "HyundaiSans", "Montserrat", "Pretendard", system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* 카드 셸 — 흰 배경 + 부드러운 그림자, 테두리는 흰 카드/옅은 회색 배경 경계용으로 최소한만. */
+.card {
+  background: var(--color-surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--color-border);
+}
+
+/* 클릭 가능한 카드·위젯에만 별도 적용 — 살짝 떠오르며 그림자가 깊어진다. */
+.card-hover {
+  transition: transform 220ms ease, box-shadow 220ms ease;
+}
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* 주요 CTA 버튼(전송·조사하기·등록 등) 조작감 — hover에 살짝 어두워지고 클릭 시 눌리는 느낌. */
+.btn-tension {
+  transition: filter 150ms ease, transform 100ms ease;
+}
+.btn-tension:hover {
+  filter: brightness(0.94);
+}
+.btn-tension:active {
+  transform: scale(0.96);
+}
+
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+@keyframes page-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.page-fade-in {
+  animation: page-fade-in 320ms ease both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-hover:hover { transform: none; }
+  .btn-tension:active { transform: none; }
+  .page-fade-in { animation: none; }
+}
+
+/* 스켈레톤 로딩 — 은은한 빛이 좌->우로 지나가는 shimmer. */
+@keyframes skeleton-shimmer {
+  from { background-position: -200% 0; }
+  to { background-position: 200% 0; }
+}
+.skeleton {
+  border-radius: var(--radius-card);
+  background: linear-gradient(90deg, var(--color-bg-subtle) 25%, #ECEEF1 37%, var(--color-bg-subtle) 63%);
+  background-size: 400% 100%;
+  animation: skeleton-shimmer 1.6s ease-in-out infinite;
 }

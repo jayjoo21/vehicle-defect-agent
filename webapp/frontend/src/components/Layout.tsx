@@ -1,35 +1,37 @@
-import { NavLink, Outlet } from 'react-router-dom'
-import { DATA_AS_OF, DISCLAIMER } from '../lib/tokens'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { DATA_AS_OF } from '../lib/tokens'
+import Logo from './Logo'
+import Footer from './Footer'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   `text-sm font-medium ${isActive ? 'text-[#002C5F]' : 'text-[#6B7280] hover:text-[#111318]'}`
 
 export default function Layout() {
+  const location = useLocation()
+
   return (
-    <div className="min-h-screen bg-white text-[#111318]">
-      <header className="border-b border-[#E5E7EB]">
+    <div className="flex min-h-screen flex-col bg-slate-50 text-[#111318]">
+      <header className="sticky top-0 z-20 bg-white shadow-sm">
         <div className="mx-auto flex max-w-[1200px] items-center justify-between px-6 py-4">
-          <NavLink to="/" className="flex flex-col leading-none">
-            <span className="text-lg font-semibold tracking-tight text-[#002C5F]">PRECALL</span>
-            <span className="text-[10px] font-medium tracking-wide text-[#6B7280]">리콜보다 먼저 아는</span>
+          <NavLink to="/" className="flex items-center">
+            <Logo compact />
           </NavLink>
           <div className="flex items-center gap-6">
             <span className="text-xs text-[#6B7280]">데이터 기준: {DATA_AS_OF}</span>
             <nav className="flex items-center gap-4">
               <NavLink to="/my-car" className={navClass}>내 차</NavLink>
+              <NavLink to="/reports" className={navClass}>시그널 리포트</NavLink>
               <NavLink to="/chat" className={navClass}>조사 채팅</NavLink>
             </nav>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1200px] px-6 py-8">
+      <main key={location.pathname} className="page-fade-in mx-auto w-full max-w-[1200px] flex-1 px-6 py-8">
         <Outlet />
       </main>
 
-      <footer className="mx-auto max-w-[1200px] px-6 py-6 text-xs text-[#6B7280]">
-        {DISCLAIMER}
-      </footer>
+      <Footer />
     </div>
   )
 }

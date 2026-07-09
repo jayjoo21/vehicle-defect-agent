@@ -17,8 +17,8 @@ export default function HeroSignalCard({ hero }: { hero: HeroCardData }) {
 
   return (
     <div
-      className="rounded-2xl border p-8"
-      style={{ borderColor: color, backgroundColor: `${color}0D`, boxShadow: 'var(--shadow-card)' }}
+      className="rounded-2xl p-6"
+      style={{ backgroundColor: `${color}0D`, boxShadow: 'var(--shadow-card)' }}
     >
       <div className="flex flex-wrap items-start justify-between gap-6">
         <div>
@@ -59,7 +59,7 @@ export default function HeroSignalCard({ hero }: { hero: HeroCardData }) {
       <div className="mt-6 flex items-center gap-4">
         <button
           onClick={() => navigate(`/chat?q=${encodeURIComponent(`내 차 ${hero.model}인데 관련 증상이 있어요`)}`)}
-          className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium text-white"
+          className="btn-tension inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium text-white"
           style={{ backgroundColor: 'var(--color-navy)' }}
         >
           <MessageCircle size={14} strokeWidth={1.5} />

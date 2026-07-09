@@ -4,6 +4,7 @@ import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
 import { stateColor, stateLabel, type SignalState } from '../lib/tokens'
 import LifecycleTimeline from '../components/LifecycleTimeline'
+import Skeleton from '../components/Skeleton'
 
 // 6.6단계: 타임라인 제목을 데이터에 맞는 헤드라인으로 — "한 시그널의 일생" 유형은 이미 리콜로
 // 이어진(recalls 존재) 시그널에만 쓰고, 그 외엔 현재 상태를 정직하게 반영한다.
@@ -26,7 +27,7 @@ export default function SignalDetail() {
         상황판으로
       </Link>
 
-      {loading && <div className="h-64 animate-pulse rounded-xl" style={{ backgroundColor: 'var(--color-bg-subtle)' }} />}
+      {loading && <Skeleton height={256} />}
       {error && <p className="text-sm text-red-600">시그널 정보를 불러오지 못했습니다: {error}</p>}
 
       {data && (
@@ -63,7 +64,7 @@ export default function SignalDetail() {
               )}
               <button
                 onClick={() => navigate(`/chat?q=${encodeURIComponent(`내 차 ${data.model}인데 관련 증상이 있어요`)}`)}
-                className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium text-white"
+                className="btn-tension inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-[13px] font-medium text-white"
                 style={{ backgroundColor: 'var(--color-navy)' }}
               >
                 <MessageCircle size={14} strokeWidth={1.5} />
@@ -79,7 +80,7 @@ export default function SignalDetail() {
           />
 
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
+            <div className="card p-6">
               <h3 className="mb-3 text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
                 관련 US 리콜 {data.recalls.length}건
               </h3>
@@ -111,7 +112,7 @@ export default function SignalDetail() {
               )}
             </div>
 
-            <div className="rounded-xl border p-6" style={{ borderColor: 'var(--color-border)', boxShadow: 'var(--shadow-card)' }}>
+            <div className="card p-6">
               <h3 className="mb-3 text-sm font-semibold" style={{ color: 'var(--color-ink)' }}>
                 한·미 시차 {data.kr_gap.length}건
               </h3>
