@@ -708,3 +708,23 @@ STR-02 AC(인용 통과율 100%, 불일치 파기·재시도): 인용 불일치 
 분포 (참고 — 정답 아님, STR-03에서 채점 예정): part_category ELECTRICAL_SYSTEM 27·NON_ELECTRICAL 18·PROPULSION_BATTERY 14·POWERTRAIN_SW 14·ADAS 10·INSUFFICIENT_INFO 6·BRAKES_ELECTRONIC 6·INSTRUMENT_CLUSTER 5 / severity CRITICAL 76·SERIOUS 16·MODERATE 4·MINOR 4 / insufficient_info=true 5건 / 장문(300자+) 76·단문 24.
 
 관찰: 동일 신고를 Gemini 3.5 Flash와 2.5 Flash가 severity를 다르게 판정한 사례 확인(예: ICCU 완속충전 불가 건을 3.5는 MODERATE, 2.5는 SERIOUS) — 모델 간 판정 편차 존재, STR-03 정답 채점 필요성의 실증.
+
+
+Task 13 산출물 (2026-07-10 완료, 담당: 상진) — STR-04 스키마 v3 (mentions_existing_recall) + 제네시스 대조군 검증
+
+docs/struct_prompt_v3.md — v2에 mentions_existing_recall(bool) 필드 추가한 v3 프롬프트. v2는 무수정 보존(별도 파일). 새 필드 정의는 [추가 규칙 ④]: 서술문이 기존 리콜·시정조치·NHTSA 캠페인을 언급하면 true(특정 캠페인 번호/일반 리콜 언급/리콜 부품 미수급 항의 포함), severity·part_category와 독립. 목적은 급증 분석 시 "기존 리콜 후속 항의"를 신규 시그널과 분리해 위양성을 줄이는 것(Task 8·9의 GENESIS 24V107000 사례가 배경).
+data/samples/genesis_14_for_str04.csv — 검증 입력 14건(제네시스 2024-04, hk_electrical_recent_full.csv에서 CDESCR 추출, 모지바케 복구 적용).
+data/processed/str04_genesis_v3.jsonl — v3 구조화 결과 14건.
+data/processed/str04_genesis_v2_gemini.jsonl — 회귀 비교용 v2(동일 모델 Gemini) 결과 14건.
+data/processed/str04_genesis_report.md — 실행 리포트.
+scripts/str01_batch_structurize.py 확장 — --prompt 옵션 추가(프롬프트 파일 교체 가능). 프롬프트에 "mentions_existing_recall" 문자열이 있으면 그 bool 필드를 자동으로 필수 검증에 포함(extra_bool_keys). 기존 v2 동작은 그대로.
+
+AC 결과 (충족)
+제네시스 대조군에서 기존 리콜 언급 9건 이상 탐지: 11/11 탐지 ✅ (재현율 100%, 오탐 0)
+14건 전수 v3 판정 vs 원문 정답 완전 일치 — TP 11 / FN 0 / FP 0 / TN 3.
+정답 기준 리콜 언급은 11건(24V107000 직접 언급 10 + 일반 리콜 언급 1). 작업표 문구의 "9건"보다 많으나 어느 기준이든 AC(9 이상) 충족. 24V107000 직접 언급 10건은 대부분 "The contact received notification of NHTSA Campaign Number: 24V107000" 보일러플레이트, 1건(11581754)은 "several open recalls" 일반 언급.
+
+회귀 검증 (v3 필드 추가가 기존 판정을 바꾸는가)
+같은 모델(Gemini 2.5 Flash)로 v2 vs v3 비교: 14건×4필드=56개 중 6건 상이(약 89% 안정). 전부 경계 케이스(INSUFFICIENT_INFO 경계 2·인접 심각도 2·part_category 경계 2). Gemini는 temperature=0에서도 완전 결정론적이지 않아 6건 중 일부는 v3 효과가 아니라 실행 노이즈 가능성 — 핵심 산출물(리콜 언급 탐지)과 무관. 이전 세션 Claude 결과(struct_genesis_202404.jsonl)와 비교하면 10건 상이하나 이는 모델 차이(Claude→Gemini)가 섞인 것이라 순수 회귀로 부적합.
+
+개선 메모: v2 스키마 허용값에 괄호 설명이 붙어(ADAS(...)) LLM이 통째 복사하는 문제(Task 12)는 v3에서도 그대로 있음 — 정규화로 우회 중. 차후 허용값과 설명을 분리하는 게 근본 개선.

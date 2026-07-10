@@ -135,9 +135,9 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
-def check_schema(rec):
+def check_schema(rec, extra_bool_keys=frozenset()):
     errors = []
-    missing = REQUIRED_KEYS - rec.keys()
+    missing = (REQUIRED_KEYS | extra_bool_keys) - rec.keys()
     if missing:
         errors.append(f"누락 키: {sorted(missing)}")
     if rec.get("part_category") not in ALLOWED_PARTS:
@@ -148,6 +148,9 @@ def check_schema(rec):
         errors.append("symptoms가 list가 아님")
     if not isinstance(rec.get("insufficient_info"), bool):
         errors.append(f"insufficient_info가 bool이 아님: {rec.get('insufficient_info')!r}")
+    for k in extra_bool_keys:
+        if k in rec and not isinstance(rec.get(k), bool):
+            errors.append(f"{k}가 bool이 아님: {rec.get(k)!r}")
     return errors
 
 
@@ -161,7 +164,7 @@ def check_quote(quote: str, cdescr: str) -> bool:
 
 
 # ── 건별 구조화 ──────────────────────────────────────────────────────
-def structurize_one(odino, cdescr, base_prompt, env):
+def structurize_one(odino, cdescr, base_prompt, env, extra_bool_keys=frozenset()):
     """반환: (통과 레코드 | None, 통계 {attempts, errors})"""
     stats = {"attempts": 0, "errors": []}
     feedback = ""
@@ -184,7 +187,7 @@ def structurize_one(odino, cdescr, base_prompt, env):
         pc = rec.get("part_category")
         if isinstance(pc, str) and "(" in pc:
             rec["part_category"] = pc.split("(")[0].strip()
-        errs = check_schema(rec)
+        errs = check_schema(rec, extra_bool_keys)
         if not check_quote(rec.get("evidence_quote", ""), cdescr):
             errs.append("evidence_quote가 원문에 없음(환각)")
         if not errs:
@@ -201,10 +204,15 @@ def main():
     ap.add_argument("--input", default=str(DEFAULT_INPUT))
     ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--limit", type=int, default=0, help="앞 N건만 처리(시운전용)")
+    ap.add_argument("--prompt", default=str(PROMPT_PATH),
+                    help="프롬프트 파일 경로(기본 v2). v3 지정 시 mentions_existing_recall 필드 검증")
     args = ap.parse_args()
 
     env = load_env()
-    base_prompt = PROMPT_PATH.read_text(encoding="utf-8")
+    base_prompt = Path(args.prompt).read_text(encoding="utf-8")
+    # 프롬프트가 mentions_existing_recall을 요구하면(v3) 그 bool 필드를 필수로 검증
+    extra_bool_keys = frozenset(
+        {"mentions_existing_recall"} if "mentions_existing_recall" in base_prompt else set())
     out_path = Path(args.output)
     fail_path = out_path.with_name(out_path.stem + FAILURES_SUFFIX)
 
@@ -231,7 +239,7 @@ def main():
         for i, row in enumerate(todo, 1):
             odino = str(row["ODINO"])
             cdescr = fix_mojibake(str(row["CDESCR"]))
-            rec, stats = structurize_one(odino, cdescr, base_prompt, env)
+            rec, stats = structurize_one(odino, cdescr, base_prompt, env, extra_bool_keys)
             if rec:
                 fout.write(json.dumps(rec, ensure_ascii=False) + "\n")
                 fout.flush()
