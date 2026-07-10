@@ -95,7 +95,8 @@ def _call_gemini(prompt: str, env: dict) -> str:
            f"{model}:generateContent?key={env['GEMINI_API_KEY']}")
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": 0, "responseMimeType": "application/json"},
+        "generationConfig": {"temperature": float(env.get("TEMPERATURE", 0)),
+                              "responseMimeType": "application/json"},
     }
     resp = _post_json(url, body, {})
     return resp["candidates"][0]["content"]["parts"][0]["text"]
@@ -206,9 +207,13 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="앞 N건만 처리(시운전용)")
     ap.add_argument("--prompt", default=str(PROMPT_PATH),
                     help="프롬프트 파일 경로(기본 v2). v3 지정 시 mentions_existing_recall 필드 검증")
+    ap.add_argument("--temperature", type=float, default=0,
+                    help="LLM temperature(기본 0=운영 기본값). STR-03 자기일관성 검사처럼 "
+                         "일부러 판단 흔들림을 드러내고 싶을 때만 0보다 크게 지정")
     args = ap.parse_args()
 
     env = load_env()
+    env["TEMPERATURE"] = str(args.temperature)
     base_prompt = Path(args.prompt).read_text(encoding="utf-8")
     # 프롬프트가 mentions_existing_recall을 요구하면(v3) 그 bool 필드를 필수로 검증
     extra_bool_keys = frozenset(
@@ -231,7 +236,8 @@ def main():
 
     todo = [r for r in rows if str(r["ODINO"]) not in done]
     print(f"입력 {len(rows)}건 / 기존 처리 {len(rows) - len(todo)}건 / 이번 처리 {len(todo)}건")
-    print(f"PROVIDER={env.get('PROVIDER', 'gemini')}, MODEL={env.get('GEMINI_MODEL', 'gemini-3.5-flash')}\n")
+    print(f"PROVIDER={env.get('PROVIDER', 'gemini')}, MODEL={env.get('GEMINI_MODEL', 'gemini-3.5-flash')}, "
+          f"TEMPERATURE={args.temperature}\n")
 
     n_ok, n_fail, n_retried, t0 = 0, 0, 0, time.time()
     with open(out_path, "a", encoding="utf-8") as fout, \
