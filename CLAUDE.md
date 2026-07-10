@@ -728,3 +728,13 @@ AC 결과 (충족)
 같은 모델(Gemini 2.5 Flash)로 v2 vs v3 비교: 14건×4필드=56개 중 6건 상이(약 89% 안정). 전부 경계 케이스(INSUFFICIENT_INFO 경계 2·인접 심각도 2·part_category 경계 2). Gemini는 temperature=0에서도 완전 결정론적이지 않아 6건 중 일부는 v3 효과가 아니라 실행 노이즈 가능성 — 핵심 산출물(리콜 언급 탐지)과 무관. 이전 세션 Claude 결과(struct_genesis_202404.jsonl)와 비교하면 10건 상이하나 이는 모델 차이(Claude→Gemini)가 섞인 것이라 순수 회귀로 부적합.
 
 개선 메모: v2 스키마 허용값에 괄호 설명이 붙어(ADAS(...)) LLM이 통째 복사하는 문제(Task 12)는 v3에서도 그대로 있음 — 정규화로 우회 중. 차후 허용값과 설명을 분리하는 게 근본 개선.
+
+
+Task 14 산출물 (2026-07-10 완료, 담당: 상진) — 100건 최종 구조화 v3 (mentions_existing_recall 포함)
+
+data/processed/str01_sample100_results_v3.jsonl — sample_100_for_meeting.csv 100건을 v3 프롬프트(8필드)로 재구조화한 최종본. STR-01(v2, 7필드)과 입력·모델·방식 완전 동일, 프롬프트만 v2→v3라 mentions_existing_recall 필드만 추가됨.
+data/processed/str01_sample100_v3_report.md — 리포트.
+LLM: Gemini 2.5 Flash. 100/100 완주, 실패 0.
+
+검증: 형식 위반 0 / 인용 불일치 0 (8필드 전수, 새 bool 필드 포함 독립 검증). mentions_existing_recall true 19건 / false 81건.
+정본 정리: v2 파일(str01_sample100_results.jsonl, 7필드)은 STR-01/02 AC 증빙으로 보존, 이 v3 파일(8필드)이 STR-03 채점 등 이후 단계의 정본.
