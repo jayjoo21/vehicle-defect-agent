@@ -161,7 +161,19 @@ def _filled_count(slots):
 
 def extract_slots(user_text, slots=None, base_prompt=None, env=None):
     """한 턴 처리. 반환: (갱신된 slots, 결과 dict).
-    결과 dict = {차종, 차종_표시, 증상, 상태, 후속질문, 확인문장, 안내문}
+
+    결과 dict의 모양(shape)은 완료 여부에 따라 다르다 — 상태·후속질문·안내문은
+    "아직 해결 안 됐을 때만" 필요한 중간 과정 정보이지 최종 산출물의 일부가 아니다.
+    최종 해결(complete)되면 그 필드들은 전부 빠지고 순수 데이터 3개만 남는다.
+
+      - 완료(complete):   {"차종":..., "차종_표시":..., "증상":...}
+                          ← 다음 단계(DB 조회 등)로 넘길 최종 산출물. 이 3개 필드만 존재.
+      - 미완료(need_*):   {"차종":..., "차종_표시":..., "증상":..., "상태":..., "후속질문":...}
+      - 포기(unresolved): {"차종":..., "차종_표시":..., "증상":..., "상태":..., "안내문":...}
+
+    확인 문장이 필요하면 완료 결과를 confirm_sentence(result)에 넘겨 호출측이 직접 만든다
+    (최종 산출물 자체에는 대화용 문구를 섞지 않는다).
+
     웹앱 연동 시 이 함수를 parse_question() 자리에 사용.
     P2: 진전 없는 되물음이 MAX_NO_PROGRESS를 넘으면 상태="unresolved"로 종료."""
     slots = dict(slots or {})
@@ -173,7 +185,6 @@ def extract_slots(user_text, slots=None, base_prompt=None, env=None):
     status = _merge_and_status(slots, ext)
     after = _filled_count(slots)
 
-    # P2: 이번 턴에 새로 채워진 게 없고 아직 미완이면 무진전 카운트 증가
     if status != "complete":
         if after > before:
             slots["_no_progress"] = 0
@@ -182,8 +193,15 @@ def extract_slots(user_text, slots=None, base_prompt=None, env=None):
     else:
         slots["_no_progress"] = 0
 
-    guide = None
-    if status != "complete" and slots.get("_no_progress", 0) >= MAX_NO_PROGRESS:
+    if status == "complete":
+        # 최종 산출물 — 대화 관리 필드 없이 순수 데이터 3개만 반환
+        return slots, {
+            "차종": slots.get("차종"),
+            "차종_표시": slots.get("차종_표시"),
+            "증상": slots.get("증상"),
+        }
+
+    if slots.get("_no_progress", 0) >= MAX_NO_PROGRESS:
         # 같은 항목을 반복해서 물어도 안 채워짐 → 포기하고 안내
         status = "unresolved"
         got = []
@@ -194,17 +212,22 @@ def extract_slots(user_text, slots=None, base_prompt=None, env=None):
         got_str = ", ".join(got) if got else "확인된 정보가 없어요"
         guide = (f"입력만으로는 차종과 증상을 모두 확인하지 못했어요({got_str}). "
                  f"차종명과 구체적인 증상을 한 번에 알려주시면 도와드릴게요.")
+        return slots, {
+            "차종": slots.get("차종"),
+            "차종_표시": slots.get("차종_표시"),
+            "증상": slots.get("증상"),
+            "상태": status,
+            "안내문": guide,
+        }
 
-    result = {
+    # 아직 진행 중 — 되물음 필요
+    return slots, {
         "차종": slots.get("차종"),
         "차종_표시": slots.get("차종_표시"),
         "증상": slots.get("증상"),
         "상태": status,
-        "후속질문": _followup_question(status, slots, ext) if status not in ("complete", "unresolved") else None,
-        "확인문장": confirm_sentence(slots) if status == "complete" else None,
-        "안내문": guide,
+        "후속질문": _followup_question(status, slots, ext),
     }
-    return slots, result
 
 
 # ── 다중 턴 대화 시뮬레이션 (테스트용) ───────────────────────────────
@@ -216,16 +239,18 @@ def run_dialog(user_turns, env=None, base_prompt=None, verbose=True):
     for i, text in enumerate(user_turns, 1):
         slots, res = extract_slots(text, slots, base_prompt, env)
         transcript.append({"turn": i, "user": text, "result": res})
+        is_complete = "상태" not in res  # 완료 결과는 상태 필드 자체가 없음
         if verbose:
             print(f"  [{i}턴] 사용자: {text}")
-            print(f"        → 차종={res['차종']} 증상={res['증상']} 상태={res['상태']}")
-            if res["후속질문"]:
+            tail = "" if is_complete else f" 상태={res['상태']}"
+            print(f"        → 차종={res['차종']} 증상={res['증상']}{tail}")
+            if not is_complete and res.get("후속질문"):
                 print(f"        ← 되물음: {res['후속질문']}")
-            if res["확인문장"]:
-                print(f"        ← 확인: {res['확인문장']}")
-            if res.get("안내문"):
+            if not is_complete and res.get("안내문"):
                 print(f"        ← 안내(종료): {res['안내문']}")
-        if res["상태"] in ("complete", "unresolved"):
+            if is_complete:
+                print(f"        ← 확인: {confirm_sentence(res)}")
+        if is_complete or res.get("상태") == "unresolved":
             break
     return slots, transcript
 
@@ -250,8 +275,8 @@ def main():
         print(f"=== {name} ===")
         slots, transcript = run_dialog(turns, env, base_prompt)
         final = transcript[-1]["result"]
-        ok = final["상태"] == "complete" or name == "등록 밖 차종"
-        print(f"  최종: 차종={final['차종']} / 증상={final['증상']} / 상태={final['상태']}\n")
+        status_label = final.get("상태", "complete")  # 완료 결과는 상태 키가 없음
+        print(f"  최종: 차종={final['차종']} / 증상={final['증상']} / 상태={status_label}\n")
         results.append({"case": name, "turns": turns, "transcript": transcript,
                         "final": final})
     out = REPO_ROOT / "data" / "processed" / "str05_test_results.json"
