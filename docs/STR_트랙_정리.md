@@ -46,6 +46,21 @@ NHTSA 소비자 신고(자유 텍스트)를 LLM으로 정형 데이터(JSON)로 
 `LLM 호출 → JSON 파싱 → 스키마 검사(필수 키·허용값·타입) → 인용 검사(STR-02) → 실패 시 오류 사유를 프롬프트에 덧붙여 재시도(최대 3회) → 통과 건만 즉시 저장`.
 안정 장치로 이어하기(이미 처리된 ODINO는 건너뜀), rate limit 백오프, provider 교체(`PROVIDER`)를 넣었다.
 
+**구조화한 8개 필드 (v2 기준 7개 + STR-04에서 추가된 1개)**
+
+| # | 필드 | 뜻 | 허용값 / 형식 |
+|---|---|---|---|
+| 1 | `odino` | 신고 고유 ID (원본 CSV와 연결하는 열쇠) | 신고마다 고유한 문자열 |
+| 2 | `part_category` | 부품 분류 | `ELECTRICAL_SYSTEM` \| `ADAS` \| `INSTRUMENT_CLUSTER` \| `PROPULSION_BATTERY` \| `BRAKES_ELECTRONIC` \| `POWERTRAIN_SW` \| `NON_ELECTRICAL` \| `INSUFFICIENT_INFO` 중 하나 |
+| 3 | `symptoms` | 증상 (짧은 한국어 명사구, 최대 3개) | 리스트 |
+| 4 | `severity` | 심각도 | `CRITICAL` \| `SERIOUS` \| `MODERATE` \| `MINOR` 중 하나 |
+| 5 | `driving_context` | 발생 상황 | 주행 중 \| 정차·주차 중 \| 시동 시 \| 불명 |
+| 6 | `evidence_quote` | 판단 근거가 된 원문 문장 1개, 원문 그대로(verbatim) 발췌 | 신고 원문(CDESCR)에서 그대로 인용 — STR-02가 실제 존재 여부를 검증 |
+| 7 | `insufficient_info` | 서술문만으로 판단이 어려우면 true | bool |
+| 8 | `mentions_existing_recall` | 신고가 기존 리콜·NHTSA 캠페인을 언급하는지 (STR-04에서 v3에 추가) | bool |
+
+이 중 `severity` 판정은 프롬프트에 명시된 4단계 규칙(기본 규칙: 주행 안전 직결성 + 추가 규칙 ①결함-결과 분리 ②통제 가능성 ③오작동>미작동)을 따른다. `part_category`는 8종 중 하나로 강제되고, 애매하면 `INSUFFICIENT_INFO`로 정직하게 표시하도록 설계됐다.
+
 **만든 파일**
 - `scripts/str01_batch_structurize.py` — 배치 구조화 파이프라인. 100건 전용이 아니라 범용 도구다. `--input`으로 데이터 교체, `--prompt`로 프롬프트 교체(STR-04에서 추가). 표준 라이브러리만 사용.
 - `data/samples/sample_100_for_meeting.csv` — 입력 100건(현대·기아 전장/SW 신고). 모수 `hk_electrical_recent_full.csv`(1,579건)의 부분집합임을 확인(100/100이 모수에 존재).
