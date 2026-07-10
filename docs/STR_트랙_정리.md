@@ -102,9 +102,9 @@ STR-03은 원래 "정답 라벨과 대조해 채점"하는 작업인데, 이 100
 1. 다른 Gemini(Pro)로 교차채점 → 기각. "정확성 검증"이 아니라 "AI끼리 의견 비교"일 뿐.
 2. part_category 등 3개 필드를 직접 만든 키워드 사전으로 자동 채점 → 기각. "내가 만든 규칙으로 내가 채점"하는 것도 같은 순환 논리.
 3. ChatGPT와 교차비교해서 일치율로 판단 → 이것도 "AI 대 AI 비교"라 정확성 판정 근거로는 배제.
-4. **채택**: 다른 LLM과 비교하는 대신, **같은 모델(Gemini) 하나로 같은 신고를 temperature를 올려(0.4) 3번 독립 반복 실행**해 "모델 스스로 얼마나 일관되게 판단하는지"를 측정. 다른 LLM·사람 라벨과 비교하는 게 아니라 모델 자신의 판단 안정성만 재는 것이라 순환 논리에서 자유롭다. 3회 판정이 갈리는 레코드일수록 모델도 헷갈리는 애매한 케이스 → 사람 검토 우선순위로 쓴다.
+4. **채택**: 다른 LLM과 비교하는 대신, **같은 모델(Gemini) 하나로 같은 신고를 temperature를 올려(0.4) 3번 독립 반복 실행**해 "모델 스스로 얼마나 일관되게 판단하는지"를 측정. 다른 LLM·사람 라벨과 비교하는 게 아니라 모델 자신의 판단 안정성만 재는 것이라 순환 논리에서 자유롭다. 3회 판정이 갈리는 레코드일수록 모델도 헷갈리는 애매한 케이스 → 사람 검토 혹은 다른 LLM API 활용 우선순위로 쓴다.
 
-이번 1단계로 한 것: v3 프롬프트로 100건을 temperature=0.4에서 3회 독립 실행 → ODINO로 매칭 → 값이 딱 떨어지는 5개 필드(`part_category`/`severity`/`driving_context`/`insufficient_info`/`mentions_existing_recall`)의 3회 일치율 계산. 자유서술형인 `evidence_quote`·`symptoms`는 정확일치 비교가 무의미해 5개 비교에서는 뺐지만, "의미가 맞다/틀리다를 판정하지 않는" 순수 기계적 보조지표(evidence_quote는 원문 내 인용 위치 겹침 IoU, symptoms는 단어 집합 자카드 유사도)로 별도 포함했다.
+이번 단계에서 한 것: v3 프롬프트로 100건을 temperature=0.4에서 3회 독립 실행 → ODINO로 매칭 → 값이 딱 떨어지는 5개 필드(`part_category`/`severity`/`driving_context`/`insufficient_info`/`mentions_existing_recall`)의 3회 일치율 계산. 자유서술형인 `evidence_quote`·`symptoms`는 정확일치 비교가 무의미해 5개 비교에서는 뺐지만, "의미가 맞다/틀리다를 판정하지 않는" 순수 기계적 보조지표(evidence_quote는 원문 내 인용 위치 겹침 IoU, symptoms는 단어 집합 자카드 유사도)로 별도 포함했다.
 
 **만든 파일**
 - `scripts/str01_batch_structurize.py` 확장 — `--temperature` 옵션 추가(기본 0=운영값 그대로 유지, 이번처럼 일부러 판단 흔들림을 드러내고 싶을 때만 0보다 크게 지정).
