@@ -25,6 +25,7 @@ function Badge({ text }: { text: string }) {
 // structured가 없는 경우(과거 캐시 등 방어적 상황)는 기존 markdown 렌더러로 폴백한다.
 export default function ChatAnswerCard({ question, answer }: { question: string; answer: ChatAnswer }) {
   const [quotesOpen, setQuotesOpen] = useState(false)
+  const [partsOpen, setPartsOpen] = useState(false)
   const [sourceModal, setSourceModal] = useState<string | null>(null)
   const s = answer.structured
   // sources(odino/campaign)에 실린 실제 부품·캠페인 정보로부터 그래프를 구성 — 근거가 없으면
@@ -111,6 +112,45 @@ export default function ChatAnswerCard({ question, answer }: { question: string;
                       — {q.summary_ko}
                     </span>
                   )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {s.parts.length > 0 && (
+        <div className="mt-4 border-t pt-3" style={{ borderColor: 'var(--color-border)' }}>
+          <button
+            onClick={() => setPartsOpen((v) => !v)}
+            className="flex items-center gap-1 text-[12px] font-medium"
+            style={{ color: 'var(--color-ink-muted)' }}
+          >
+            <ChevronDown size={13} strokeWidth={1.5} className={partsOpen ? 'rotate-180 transition-transform' : 'transition-transform'} />
+            결함 부품 정보 {s.parts.length}건 {partsOpen ? '접기' : '펼치기'}
+          </button>
+          {partsOpen && (
+            <ul className="mt-2 flex flex-col gap-3">
+              {s.parts.map((p, i) => (
+                <li key={i} className="text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge text={p.campaign} />
+                    {p.component_name && <Badge text={p.component_name} />}
+                    {p.part_number && <Badge text={p.part_number} />}
+                    {p.supplier_canonical && (
+                      <span className="text-[11px]" style={{ color: 'var(--color-navy)' }}>
+                        공급사: {p.supplier_canonical}
+                      </span>
+                    )}
+                  </div>
+                  {p.defect_cause && (
+                    <p className="mt-1 rounded p-2 text-[11px] leading-relaxed" style={{ backgroundColor: 'var(--color-bg-subtle)' }}>
+                      &ldquo;{p.defect_cause}&rdquo;
+                    </p>
+                  )}
+                  <p className="mt-1 text-[10px]" style={{ color: 'var(--color-ink-muted)' }}>
+                    출처: NHTSA Part 573 공식 리콜 문서 원문 기준
+                  </p>
                 </li>
               ))}
             </ul>

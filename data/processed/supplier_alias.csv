@@ -1,0 +1,48 @@
+raw_name,canonical_name,supplier_group,confidence,note
+Aptiv,Aptiv,Aptiv,final,
+Borgwarner,BorgWarner,BorgWarner,final,공식 표기 대문자 W
+"Continental Automotive Electronics, LLC","Continental Automotive Electronics, LLC",Continental,final,콘티넨탈 한국법인(전 지멘스VDO 계열)
+CURT Manufacturing/LIPPERT,CURT Manufacturing (LIPPERT),Lippert,final,CURT는 Lippert 산하 견인장치 브랜드 — PALISADE 견인장치 리콜과 연결
+Daedong Door Co. (Songdo Plant),Daedong Door Co.,Daedong Door,final,송도공장은 사업장 표기 — note로만 보존
+HL Mando,HL Mando,HL Mando,final,2022년 만도에서 사명 변경된 본사
+Hyundai KEFICO Corp,Hyundai KEFICO Corp.,Hyundai KEFICO,final,표기 변형 병합
+Hyundai KEFICO Corp.,Hyundai KEFICO Corp.,Hyundai KEFICO,final,
+Hyundai Mobis,Hyundai Mobis,Hyundai Mobis,final,본사
+Hyundai MOBIS,Hyundai Mobis,Hyundai Mobis,final,대소문자 변형
+HYUNDAI MOBIS,Hyundai Mobis,Hyundai Mobis,final,대소문자 변형
+Hyundai Mobis Company (Jincheon Plant),Hyundai Mobis,Hyundai Mobis,final,진천공장은 사업장 표기 — 법인은 본사와 동일 (24V757000 파일럿에서 확인된 그 공장)
+Hyundai Motor Company,Hyundai Motor Company,Hyundai Motor,final,
+Hyundai Motor Manufacturing Alabama,Hyundai Motor Manufacturing Alabama,Hyundai Motor,final,현대차 미국 생산법인(HMMA) — 서연이화와 무관하므로 병합 금지
+"IEE, S.A.","IEE, S.A.",IEE,final,룩셈부르크 센서 업체(승객감지 등)
+IL HEUNG,IL HEUNG,IL HEUNG,final,일흥(시트벨트 부품 계열로 추정)
+JINHAP,JINHAP,JINHAP,final,진합(파스너류)
+"JOYSON SAFETY SYSTEMS KOREA CO., LTD.","JOYSON SAFETY SYSTEMS KOREA CO., LTD.",Joyson Safety Systems,final,구 타카타 계열 안전장치 업체 한국법인
+KET,KET,KET,final,한국단자공업(Korea Electric Terminal)으로 추정 — 커넥터/단자류
+Kia Mexico,Kia Mexico,Kia,final,페스케리아 공장 — 2021년 사명에서 Motors 삭제된 현행 표기로 통일
+Kia Motor Mexico,Kia Mexico,Kia,final,동일 실체의 구 표기 — 병합
+Korea Flange CO. LTD,"Korea Flange Co., Ltd",Korea Flange,final,표기 변형 병합
+"Korea Flange Co., Ltd","Korea Flange Co., Ltd",Korea Flange,final,
+Kyungshin,Kyungshin,Kyungshin,final,경신 본사(와이어링 하네스)
+Kyungshin America Corp.,Kyungshin America Corp.,Kyungshin,final,경신 미국법인 — 별도 법인이므로 canonical 분리 + 그룹만 통합
+LG Energy Solutions,LG Energy Solution,LG Energy Solution,final,공식 사명은 단수형(Solution)
+"LS Automotive Technologies Co.,Ltd.","LS Automotive Technologies Co.,Ltd.",LS Automotive,final,
+Mando America Corp,Mando America Corp,HL Mando,final,HL만도 미국법인 — 별도 법인이므로 canonical 분리 + 그룹만 통합
+Mando Pyeongtaek Plant,HL Mando,HL Mando,final,평택공장은 사업장 표기 — 법인은 본사와 동일
+MNEX,MNEX,MNEX,final,미상 업체 — 원문 표기 유지
+MOBIS,Hyundai Mobis,Hyundai Mobis,final,573 서식에서 현대모비스 약칭 — 본사로 병합
+MOBIS Corporation,Hyundai Mobis,Hyundai Mobis,final,동일 약칭 변형 — 본사로 병합
+Mobis N. America Electrified Powertrain,Mobis North America Electrified Powertrain (MNAe),Hyundai Mobis,final,조지아주 전동화 파워트레인 법인 — 축약 표기 병합
+"Mobis North America Electrified (""MNAe"")",Mobis North America Electrified Powertrain (MNAe),Hyundai Mobis,final,동일 법인 — 병합
+Mobis North America Electrified Powertra,Mobis North America Electrified Powertrain (MNAe),Hyundai Mobis,final,573 서식 글자수 제한으로 잘린 표기 — 병합
+Mobis Parts America,Mobis Parts America,Hyundai Mobis,final,모비스 미국 부품법인 — 별도 법인이므로 canonical 분리 + 그룹만 통합
+Myunghwa,Myunghwa,Myunghwa,final,명화공업(워터펌프 등)
+Not Applicable,,EXCLUDE,final,플레이스홀더 — seed 시 NULL 처리 + 공급사 집계에서 제외
+SAMBO MOTORS,SAMBO MOTORS,SAMBO MOTORS,final,삼보모터스
+SEGI Korea,SEGI Korea,SEGI Korea,final,
+Seoyon E-Hwa Alabama,Seoyon E-Hwa Alabama,Seoyon E-Hwa,final,573 원문(25V808000) 대조 결과 주소 7851 Bill Joseph Park/Montgomery AL 36105 — 아래 AUBURN 행(24V877000)과 주소가 달라(Dadeville AL 36853) 동일 사업장이 아님을 확인. 같은 회사(Seoyon E-Hwa) 산하 별개 사업장으로 판단해 canonical 병합을 취소하고 분리
+SEOYON E-HWA AUBURN,SEOYON E-HWA AUBURN,Seoyon E-Hwa,final,573 원문(24V877000) 대조 결과 주소 586 Thweatt Industrial Blvd/Dadeville AL 36853 — 위 Alabama 행(25V808000, Montgomery AL 36105)과 주소가 달라 동일 사업장이 아님을 확인. 같은 회사(Seoyon E-Hwa) 산하 별개 사업장으로 판단해 canonical 병합을 취소하고 분리(표기상 "AUBURN"이지만 원문 실제 주소지는 Dadeville — 원문 그대로 보존)
+TBD,,EXCLUDE,final,플레이스홀더 — seed 시 NULL 처리 + 공급사 집계에서 제외
+Transys Korea,Transys Korea,Transys Korea,final,573 원문(24V529000) 대조 결과 공급사명은 "Transys Korea", 주소는 105 Sindang 1-ro/Seongyeon-myeon/Seosan-si/Chungcheongnam-do(충남 서산) — 현대트랜시스 서산공장 주소와 정황상 일치하나 원문 어디에도 "Hyundai" 표기가 없어 문서 근거만으로는 확정 불가. 지시대로 supplier_group 현행("Transys Korea") 유지
+TYW,TYW,TYW,final,미상 업체 — 원문 표기 유지
+Yura Corporation,Yura Corporation,Yura,final,유라(와이어링 하네스)
+ZF TRW- Reynosa Operations,ZF TRW (Reynosa Operations),ZF,final,ZF 멕시코 레이노사 공장 — 사업장 표기 정리

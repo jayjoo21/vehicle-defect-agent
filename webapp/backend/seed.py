@@ -42,6 +42,7 @@ KR_US_GAP_V2_PATH = REPO_ROOT / "data/processed/kr_us_gap_v2.csv"
 RECALLS_HK_PATH = REPO_ROOT / "data/recalls/recalls_hk_by_vehicle.csv"
 STRUCT_JSONL_PATH = REPO_ROOT / "data/processed/llm_struct_test_results.jsonl"
 COMPLAINT_META_PATH = REPO_ROOT / "data/processed/hk_electrical_recent_full.csv"
+PARTS_PATH = REPO_ROOT / "data/processed/rcl573_components_normalized.csv"
 
 LATEST_MONTH = pd.Period("2026-06", freq="M")
 
@@ -408,6 +409,33 @@ def seed_chat_reports(conn) -> dict:
     return {"ev6_len": len(ev6_markdown), "ioniq5_len": len(ioniq5_markdown)}
 
 
+# ---------------------------------------------------------------------------
+# parts (rcl573_components_normalized.csv 실측 — Part 573 원문 + 공급사 정규화)
+# ---------------------------------------------------------------------------
+
+def load_parts_df() -> pd.DataFrame:
+    return pd.read_csv(PARTS_PATH, dtype=str, encoding="utf-8-sig").fillna("")
+
+
+def seed_parts(conn, parts_df: pd.DataFrame):
+    rows = [
+        (
+            r["campaign"], r["component_name"] or None, r["part_number"] or None,
+            r["supplier_canonical"] or None, r["supplier_group"] or None,
+            r["supplier_country"] or None, r["defect_cause"] or None,
+            r["fmvss"] or None, r["remedy_type"] or None, r["pdf_url"] or None,
+        )
+        for _, r in parts_df.iterrows()
+    ]
+    conn.executemany(
+        """INSERT INTO parts (campaign, component_name, part_number, supplier_canonical,
+                               supplier_group, supplier_country, defect_cause, fmvss, remedy_type, pdf_url)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        rows,
+    )
+    conn.commit()
+
+
 def seed_signal_states(conn, ev9_signal_id):
     rows = [
         (ev9_signal_id, "active", "2024-09-01"),  # b1 발화월 (report_24V757000.md)
@@ -428,7 +456,7 @@ def seed():
     conn = get_connection()
     init_schema(conn)
     # 재실행 가능하도록 기존 데이터 초기화 (스키마는 유지)
-    for table in ["signal_states", "reports", "signals", "recalls", "kr_us_gap", "complaints"]:
+    for table in ["signal_states", "reports", "signals", "recalls", "kr_us_gap", "complaints", "parts"]:
         conn.execute(f"DELETE FROM {table}")
     conn.commit()
 
@@ -448,6 +476,9 @@ def seed():
     gap_v2_extra = load_gap_v2_extra_rows()
     seed_kr_us_gap(conn, gap_df, gap_v2_extra)
 
+    parts_df = load_parts_df()
+    seed_parts(conn, parts_df)
+
     ev9_signal_id = id_map[("EV9", "2024-09")]
     report_id, report_len = seed_reports(conn, ev9_signal_id)
     seed_signal_states(conn, ev9_signal_id)
@@ -459,9 +490,22 @@ def seed():
 
 def print_integrity_report(conn, ev9_report_len: int, chat_report_lens: dict):
     print("=== seed 정합성 리포트 ===")
-    for table in ["complaints", "recalls", "signals", "signal_states", "reports", "kr_us_gap"]:
+    for table in ["complaints", "recalls", "signals", "signal_states", "reports", "kr_us_gap", "parts"]:
         n = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
         print(f"  {table}: {n}행")
+
+    n_parts_campaigns = conn.execute("SELECT COUNT(DISTINCT campaign) FROM parts").fetchone()[0]
+    n_recalls_campaigns = conn.execute("SELECT COUNT(DISTINCT campaign) FROM recalls").fetchone()[0]
+    n_joined = conn.execute(
+        "SELECT COUNT(DISTINCT p.campaign) FROM parts p JOIN recalls r ON p.campaign = r.campaign"
+    ).fetchone()[0]
+    print(f"\n  parts campaign 커버리지: recalls 테이블의 {n_recalls_campaigns}개 캠페인 중 {n_joined}개가 parts에도 존재 (parts 자체 캠페인 수 {n_parts_campaigns})")
+
+    print("\n  parts supplier_group 상위 5:")
+    for group, n in conn.execute(
+        "SELECT supplier_group, COUNT(*) as n FROM parts WHERE supplier_group != '' AND supplier_group IS NOT NULL GROUP BY supplier_group ORDER BY n DESC LIMIT 5"
+    ):
+        print(f"    {group}: {n}건")
 
     print("\n  signals 상태별 분포:")
     for state, n in conn.execute("SELECT state, COUNT(*) as n FROM signals GROUP BY state ORDER BY n DESC"):

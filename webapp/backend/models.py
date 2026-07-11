@@ -75,6 +75,25 @@ CREATE TABLE IF NOT EXISTS kr_us_gap (
     gap_days INTEGER,
     note TEXT
 );
+
+-- campaign은 PK가 아님(recalls·kr_us_gap과 같은 이유): 한 캠페인이 여러 부품·여러
+-- 차종에 걸리는 실제 사례가 있다(예: 26V046000이 K4·SORENTO·CARNIVAL·EV9·K5·
+-- SPORTAGE 등에 공통 적용되는 클러스터 부품 8종). data/processed/
+-- rcl573_components_normalized.csv(Part 573 원문 + 공급사 정규화)만을 데이터
+-- 소스로 한다 — 지어낸 행 없음.
+CREATE TABLE IF NOT EXISTS parts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    campaign TEXT NOT NULL,
+    component_name TEXT,
+    part_number TEXT,
+    supplier_canonical TEXT,
+    supplier_group TEXT,
+    supplier_country TEXT,
+    defect_cause TEXT,
+    fmvss TEXT,
+    remedy_type TEXT,
+    pdf_url TEXT
+);
 """
 
 

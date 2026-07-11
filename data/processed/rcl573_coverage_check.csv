@@ -1,0 +1,10 @@
+﻿metric,value
+pdf_parse_ok,71
+pdf_parse_error,0
+pdf_url_found,71
+total_campaigns,76
+part_number_missing_rate,0.0458
+supplier_name_missing_rate,0.0392
+supplier_country_missing_rate,0.0392
+corrected_in_production_missing_rate,0.1242
+hk_by_vehicle_join_coverage,76/76

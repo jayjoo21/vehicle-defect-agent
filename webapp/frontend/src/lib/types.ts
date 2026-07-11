@@ -129,7 +129,10 @@ export interface Report {
 export interface VehicleDomain {
   domain: string
   state: SignalState
-  evidence: { type: 'recall'; campaign: string; report_date: string } | { type: 'complaint'; odino: string; text: string } | null
+  evidence:
+    | { type: 'recall'; campaign: string; report_date: string; part_number: string | null; supplier_canonical: string | null }
+    | { type: 'complaint'; odino: string; text: string }
+    | null
   recall_count: number
   complaint_count: number
   trend: { month: string; count: number }[]
@@ -185,11 +188,21 @@ export interface ChatQuote {
   summary_ko: string | null
 }
 
+export interface ChatPart {
+  campaign: string
+  component_name: string | null
+  part_number: string | null
+  supplier_canonical: string | null
+  defect_cause: string | null
+  pdf_url: string | null
+}
+
 export interface ChatStructured {
   headline: string
   chips: string[]
   sections: ChatSection[]
   quotes: ChatQuote[]
+  parts: ChatPart[]
 }
 
 export interface ChatAnswer {

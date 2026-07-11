@@ -48,7 +48,17 @@ def get_vehicle_map(model: str, year: str, conn=Depends(get_db)):
             domain_state[domain] = "recalled"
             domain_recall_count[domain] += 1
             # ORDER BY report_date ASC라 마지막에 덮어써지는 값이 가장 최근 리콜이 됨
-            domain_evidence[domain] = {"type": "recall", "campaign": r["campaign"], "report_date": r["report_date"]}
+            part = conn.execute(
+                "SELECT part_number, supplier_canonical FROM parts WHERE campaign = ? AND component_name IS NOT NULL LIMIT 1",
+                (r["campaign"],),
+            ).fetchone()
+            domain_evidence[domain] = {
+                "type": "recall",
+                "campaign": r["campaign"],
+                "report_date": r["report_date"],
+                "part_number": part["part_number"] if part else None,
+                "supplier_canonical": part["supplier_canonical"] if part else None,
+            }
 
     for c in complaints_source:
         domain = classify_domain(f"{c['part_category'] or ''} {c['symptom'] or ''}")

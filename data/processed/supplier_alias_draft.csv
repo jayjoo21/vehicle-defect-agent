@@ -1,0 +1,48 @@
+﻿raw_name,canonical_name,confidence,note
+Aptiv,Aptiv,auto,
+Borgwarner,Borgwarner,auto,
+"Continental Automotive Electronics, LLC","Continental Automotive Electronics, LLC",auto,
+CURT Manufacturing/LIPPERT,CURT Manufacturing/LIPPERT,auto,
+Daedong Door Co. (Songdo Plant),Daedong Door Co. (Songdo Plant),auto,
+HL Mando,HL Mando,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Mando America Corp, Mando Pyeongtaek Plant"
+Hyundai KEFICO Corp,Hyundai KEFICO Corp.,auto,대소문자/법인접미어/공백 차이만 있는 변형 — 자동 병합
+Hyundai KEFICO Corp.,Hyundai KEFICO Corp.,auto,대소문자/법인접미어/공백 차이만 있는 변형 — 자동 병합
+Hyundai Mobis,Hyundai Mobis,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: MOBIS, Hyundai Mobis Company (Jincheon Plant), Mobis Parts America"
+Hyundai MOBIS,Hyundai Mobis,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: MOBIS, Hyundai Mobis Company (Jincheon Plant), Mobis Parts America"
+HYUNDAI MOBIS,Hyundai Mobis,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: MOBIS, Hyundai Mobis Company (Jincheon Plant), Mobis Parts America"
+Hyundai Mobis Company (Jincheon Plant),Hyundai Mobis Company (Jincheon Plant),review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: MOBIS, Hyundai Mobis, Mobis Parts America"
+Hyundai Motor Company,Hyundai Motor Company,auto,
+Hyundai Motor Manufacturing Alabama,Hyundai Motor Manufacturing Alabama,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: SEOYON E-HWA AUBURN, Seoyon E-Hwa Alabama"
+"IEE, S.A.","IEE, S.A.",auto,
+IL HEUNG,IL HEUNG,auto,
+JINHAP,JINHAP,auto,
+"JOYSON SAFETY SYSTEMS KOREA CO., LTD.","JOYSON SAFETY SYSTEMS KOREA CO., LTD.",auto,
+KET,KET,auto,
+Kia Mexico,Kia Mexico,review,키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Kia Motor Mexico
+Kia Motor Mexico,Kia Motor Mexico,review,키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Kia Mexico
+Korea Flange CO. LTD,"Korea Flange Co., Ltd",auto,대소문자/법인접미어/공백 차이만 있는 변형 — 자동 병합
+"Korea Flange Co., Ltd","Korea Flange Co., Ltd",auto,대소문자/법인접미어/공백 차이만 있는 변형 — 자동 병합
+Kyungshin,Kyungshin,review,키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Kyungshin America Corp.
+Kyungshin America Corp.,Kyungshin America Corp.,review,키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Kyungshin
+LG Energy Solutions,LG Energy Solutions,auto,
+"LS Automotive Technologies Co.,Ltd.","LS Automotive Technologies Co.,Ltd.",auto,
+Mando America Corp,Mando America Corp,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Mando Pyeongtaek Plant, HL Mando"
+Mando Pyeongtaek Plant,Mando Pyeongtaek Plant,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Mando America Corp, HL Mando"
+MNEX,MNEX,auto,
+MOBIS,MOBIS,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Hyundai Mobis Company (Jincheon Plant), Hyundai Mobis, Mobis Parts America"
+MOBIS Corporation,MOBIS,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Hyundai Mobis Company (Jincheon Plant), Hyundai Mobis, Mobis Parts America"
+Mobis N. America Electrified Powertrain,Mobis N. America Electrified Powertrain,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: MOBIS, Hyundai Mobis Company (Jincheon Plant), Hyundai Mobis"
+"Mobis North America Electrified (""MNAe"")","Mobis North America Electrified (""MNAe"")",review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: MOBIS, Hyundai Mobis Company (Jincheon Plant), Hyundai Mobis"
+Mobis North America Electrified Powertra,Mobis North America Electrified Powertra,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: MOBIS, Hyundai Mobis Company (Jincheon Plant), Hyundai Mobis"
+Mobis Parts America,Mobis Parts America,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: MOBIS, Hyundai Mobis Company (Jincheon Plant), Hyundai Mobis"
+Myunghwa,Myunghwa,auto,
+Not Applicable,Not Applicable,auto,실제 공급사명이 아닌 플레이스홀더 값으로 보임
+SAMBO MOTORS,SAMBO MOTORS,auto,
+SEGI Korea,SEGI Korea,auto,
+Seoyon E-Hwa Alabama,Seoyon E-Hwa Alabama,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: SEOYON E-HWA AUBURN, Hyundai Motor Manufacturing Alabama"
+SEOYON E-HWA AUBURN,SEOYON E-HWA AUBURN,review,"키워드 유사 그룹(자동 병합 안 함) — 비교 대상: Hyundai Motor Manufacturing Alabama, Seoyon E-Hwa Alabama"
+TBD,TBD,auto,실제 공급사명이 아닌 플레이스홀더 값으로 보임
+Transys Korea,Transys Korea,auto,
+TYW,TYW,auto,
+Yura Corporation,Yura Corporation,auto,
+ZF TRW- Reynosa Operations,ZF TRW- Reynosa Operations,auto,

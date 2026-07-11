@@ -55,6 +55,12 @@ export default function DomainDetailCard({ domain, model }: { domain: VehicleDom
                 관련 리콜 {domain.recall_count}건 중 최신 1건 표시
               </p>
             )}
+            {(domain.evidence.part_number || domain.evidence.supplier_canonical) && (
+              <p className="mt-1 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+                결함 부품: {[domain.evidence.part_number, domain.evidence.supplier_canonical].filter(Boolean).join(' · ')}
+                <span className="ml-1 text-[10px]">(공식 리콜 문서 기준)</span>
+              </p>
+            )}
           </div>
           <p className="mb-4 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
             이 차종·도메인 관련 신고 0건 (리콜은 있으나 접수된 소비자 불만 없음)
@@ -93,6 +99,12 @@ export default function DomainDetailCard({ domain, model }: { domain: VehicleDom
               {domain.recall_count > 1 && (
                 <p className="mt-1 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
                   관련 리콜 {domain.recall_count}건 중 최신 1건 표시
+                </p>
+              )}
+              {(domain.evidence.part_number || domain.evidence.supplier_canonical) && (
+                <p className="mt-1 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+                  결함 부품: {[domain.evidence.part_number, domain.evidence.supplier_canonical].filter(Boolean).join(' · ')}
+                  <span className="ml-1 text-[10px]">(공식 리콜 문서 기준)</span>
                 </p>
               )}
             </div>

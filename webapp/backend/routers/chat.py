@@ -79,6 +79,31 @@ def _complaint_source(r) -> dict:
     }
 
 
+def _campaign_parts(conn, campaigns: list[str]) -> list[dict]:
+    """리콜 캠페인에 매칭된 Part 573 원문 부품 정보(data/processed/
+    rcl573_components_normalized.csv 기반, parts 테이블) — 지어낸 값 없음.
+    캠페인에 parts 데이터가 없으면 빈 리스트(placeholder 문구는 프론트에서도 금지)."""
+    if not campaigns:
+        return []
+    placeholders = ",".join("?" for _ in campaigns)
+    rows = conn.execute(
+        f"""SELECT campaign, component_name, part_number, supplier_canonical, defect_cause, pdf_url
+            FROM parts WHERE campaign IN ({placeholders}) AND component_name IS NOT NULL""",
+        campaigns,
+    ).fetchall()
+    return [
+        {
+            "campaign": r["campaign"],
+            "component_name": r["component_name"],
+            "part_number": r["part_number"],
+            "supplier_canonical": r["supplier_canonical"],
+            "defect_cause": r["defect_cause"],
+            "pdf_url": r["pdf_url"],
+        }
+        for r in rows
+    ]
+
+
 def _build_quotes(sources: list[dict]) -> list[dict]:
     """structured.quotes — sources(이미 조회된 인용 원문)를 재사용해 원문+한국어 요약 병기 형태로
     변환한다. 6.6단계: 새 번역을 짓지 않고 part_category/symptom(이미 검증된 필드)만 재사용."""
@@ -188,7 +213,7 @@ async def _ev6_cluster_flow(conn, llm: LLM):
 
     structured = result.get("structured")
     if structured is not None:
-        structured = {**structured, "quotes": _build_quotes(sources)}
+        structured = {**structured, "quotes": _build_quotes(sources), "parts": _campaign_parts(conn, iccu_campaigns)}
     yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": sources, "report_id": report_id})
 
 
@@ -306,7 +331,7 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
 
     structured = result.get("structured")
     if structured is not None:
-        structured = {**structured, "quotes": _build_quotes(sources)}
+        structured = {**structured, "quotes": _build_quotes(sources), "parts": _campaign_parts(conn, iccu_campaigns)}
     yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": sources, "report_id": report_id})
 
 
@@ -328,7 +353,7 @@ async def _out_of_scope_flow(llm: LLM):
     await asyncio.sleep(0.2)
     structured = result.get("structured")
     if structured is not None:
-        structured = {**structured, "quotes": []}
+        structured = {**structured, "quotes": [], "parts": []}
     yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": [], "report_id": None})
 
 
