@@ -1,8 +1,5 @@
-# 담당자: 허정윤 
-# 담당 기능: CHT-01 사용자 질문 → 구조화 → 조사 → 검수 → 답변 채팅 파이프라인 
-
 """
-CHT-01 — 채팅 연동 파이프라인
+MOBISCOPE CHT-01 — 채팅 연동 파이프라인
 ============================================================
 목적
 - 사용자 질문을 [질문 → 구조화 → 조사 → 검수 → 답변] 5단계로 연결한다.
@@ -40,25 +37,76 @@ from inv01_query_templates import (
 from inv02_03_investigation_loop import investigate_ad_hoc
 
 try:
-    from sta01_02_status_tracking import DEFAULT_DB_PATH, get_conn, query_status_summary
+    from sta01_02_status_tracking import (
+        DEFAULT_DB_PATH,
+        SIGNAL_LABEL_KO,
+        SIGNAL_PRIORITY_ORDER,
+        get_conn,
+        query_signal_summary,
+    )
 except Exception:  # STA 파일이 아직 없는 환경에서도 통계 질의는 작동하게 한다.
     DEFAULT_DB_PATH = Path("data/processed/defect_status_tracking.db")
     get_conn = None
-    query_status_summary = None
+    query_signal_summary = None
+    SIGNAL_LABEL_KO = {}
+    SIGNAL_PRIORITY_ORDER = {}
+
+# STR-05(사용자 입력에서 차종·증상 추출, 멀티턴 되물음)를 이 자리에 꽂는다 —
+# 원래 코드의 "TODO: LLM_CALL 교체 지점" 자리가 여기다.
+#
+# 반환 shape(완료 시 {차종,차종_표시,증상} 3개 / 미완료 시 +상태+후속질문 /
+# 포기 시 +상태+안내문)와 extract_slots()가 "웹앱 연동용 진입점"이라는 점,
+# confirm_sentence(결과)가 별도 함수로 분리돼 있다는 점은 STR 트랙 정리 문서
+# (STR_트랙_정리 (1).md, 최종 갱신 2026-07-10)로 확인됨.
+# 단, extract_slots(question, existing_slots) 두 인자 시그니처 자체는 문서에
+# 코드로 명시돼 있지 않아 여전히 추정이다 — extract_slots_safe() 안의 TypeError
+# 폴백이 그 불확실성에 대한 안전장치.
+#
+# import 경로는 두 가지를 다 시도한다: bare(str05_query_understanding)와
+# scripts. 패키지 경로(scripts.str05_query_understanding). 같은 문서의
+# str_structurize_v3.py 검증 기록에 "webapp/backend/에서 sys.path에 루트만
+# 추가하고 from scripts.str_structurize_v3 import structurize로 임포트해도
+# 정상 동작"이라고 명시돼 있어 — str05도 같은 scripts/ 안에 있으니 실제
+# 배포 환경에서 어느 쪽으로 import될지 몰라 둘 다 시도하게 했다.
+def _try_import_str05(name: str):
+    try:
+        module = __import__("str05_query_understanding", fromlist=[name])
+        return getattr(module, name)
+    except ImportError:
+        try:
+            module = __import__("scripts.str05_query_understanding", fromlist=[name])
+            return getattr(module, name)
+        except Exception:
+            return None
+    except Exception:
+        return None
 
 
+_str05_extract_slots = _try_import_str05("extract_slots")
+_str05_confirm_sentence = _try_import_str05("confirm_sentence")
+
+
+# STR-04에서 확정된 v3 스키마는 8종(ELECTRICAL_SYSTEM/ADAS/INSTRUMENT_CLUSTER/
+# PROPULSION_BATTERY/BRAKES_ELECTRONIC/POWERTRAIN_SW/NON_ELECTRICAL/
+# INSUFFICIENT_INFO)인데, 이전 버전은 3종(ELECTRICAL_SYSTEM/POWERTRAIN_SW/ADAS)
+# 으로만 매핑돼 있어 "계기판"이나 "배터리" 질문이 실제보다 넓은 카테고리로
+# 뭉뚱그려졌다(2026-07-13 확인, STA/INV 쪽에도 같은 종류 갭이 있어 STA는 이미
+# 수정, INV-01은 담당 범위 밖이라 별도 전달). 아래는 STR v3 8종 기준 재매핑.
 PART_CATEGORY_BY_KO = {
-    "계기판": "ELECTRICAL_SYSTEM",
-    "클러스터": "ELECTRICAL_SYSTEM",
+    "계기판": "INSTRUMENT_CLUSTER",
+    "클러스터": "INSTRUMENT_CLUSTER",
+    "게이지": "INSTRUMENT_CLUSTER",
+    "속도계": "INSTRUMENT_CLUSTER",
     "전기": "ELECTRICAL_SYSTEM",
-    "배터리": "ELECTRICAL_SYSTEM",
-    "충전": "ELECTRICAL_SYSTEM",
+    "배터리": "PROPULSION_BATTERY",
+    "충전": "PROPULSION_BATTERY",
+    "고전압": "PROPULSION_BATTERY",
     "시동": "POWERTRAIN_SW",
     "엔진": "POWERTRAIN_SW",
     "동력": "POWERTRAIN_SW",
     "출력": "POWERTRAIN_SW",
-    "브레이크": "POWERTRAIN_SW",
-    "제동": "POWERTRAIN_SW",
+    "브레이크": "BRAKES_ELECTRONIC",
+    "제동": "BRAKES_ELECTRONIC",
     "차선": "ADAS",
     "ADAS": "ADAS",
     "카메라": "ADAS",
@@ -82,6 +130,9 @@ TEXT_KEYWORDS_BY_KO = {
     "카메라": ["camera", "backup", "rear"],
     "배터리": ["battery", "12v"],
     "충전": ["charge", "charging", "battery"],
+    "게이지": ["gauge", "instrument", "dashboard"],
+    "속도계": ["speedometer", "gauge"],
+    "고전압": ["high voltage", "hv battery", "iccu"],
 }
 
 MAKE_ALIASES = {
@@ -196,7 +247,12 @@ def _extract_part_and_keywords(question: str) -> tuple[str | None, list[str]]:
 
 def _detect_intent(question: str) -> str:
     q = question.lower()
-    if any(k in q for k in ["신규", "재발", "리콜 후", "상태", "sta-01", "sta-02"]):
+    # "증가"는 추가하지 않음: 기존에 investigate_signal 트리거(급증 조사)로 이미
+    # 쓰이고 있어서, status_tracking을 먼저 체크하는 이 if-elif 순서상 여기에
+    # 추가하면 "증가"가 들어간 급증-조사 질문까지 전부 status_tracking으로
+    # 새치기해버린다("계기판 신고 증가하고 있어?" 같은 질문이 깨짐). "잠잠"은
+    # 기존에 다른 의도로 안 쓰이고 있어 충돌 없이 추가.
+    if any(k in q for k in ["신규", "재발", "잠잠", "리콜 후", "상태", "sta-01", "sta-02"]):
         return "status_tracking"
     if any(k in q for k in ["근거", "원문", "citation", "인용", "사례"]):
         return "evidence_samples"
@@ -216,19 +272,94 @@ def _detect_intent(question: str) -> str:
     return "investigate_signal"
 
 
-def parse_question(question: str, *, csv_path: str | Path | None = None) -> dict[str, Any]:
+def _ro_particle(word: str) -> str:
+    """한글 단어 뒤에 붙는 "로/으로" 조사를 받침 유무로 정확히 고른다.
+    규칙: 받침 없음 또는 받침이 ㄹ이면 "로", 그 외 받침이 있으면 "으로"
+    (예: "서울로"·"불로"는 로, "깜빡임으로"·"소음으로"는 으로).
+    한글 완성형 음절이 아닌 문자로 끝나면(영문/숫자 등) 안전하게 "로"를 쓴다."""
+    if not word:
+        return "로"
+    last = word.strip()[-1]
+    code = ord(last)
+    if 0xAC00 <= code <= 0xD7A3:
+        final_idx = (code - 0xAC00) % 28
+        if final_idx in (0, 8):  # 0=받침 없음, 8=ㄹ받침
+            return "로"
+        return "으로"
+    return "로"
+
+
+def confirm_sentence_safe(slots: dict[str, Any]) -> str | None:
+    """
+    STR-05 confirm_sentence() 래퍼. 실제 함수가 로드됐으면 그대로 쓰고, 실패하거나
+    아직 연동 전이면 STR 트랙 정리 문서의 예시 형식("투싼 / 계기판 깜빡임으로
+    이해했어요. 맞나요?")을 그대로 흉내 낸 자체 생성으로 폴백한다 — 실제
+    confirm_sentence()가 준비되면 이 폴백은 자동으로 안 쓰이게 된다.
+    slots에 차종_표시/증상이 없으면(완료되지 않은 슬롯) None을 반환한다.
+    """
+    if _str05_confirm_sentence is not None:
+        try:
+            result = _str05_confirm_sentence(slots)
+            if result:
+                return result
+        except Exception:
+            pass
+    model_kr = slots.get("차종_표시") or slots.get("차종")
+    symptom = slots.get("증상")
+    if not (model_kr and symptom):
+        return None
+    return f"{model_kr} / {symptom}{_ro_particle(symptom)} 이해했어요. 맞나요?"
+
+
+def extract_slots_safe(question: str, slot_state: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """
+    STR-05 extract_slots() 래퍼. STR-05가 없는 환경(import 실패)이면 None을 반환해
+    chat()이 기존 정규식 경로(_extract_model 등)로 폴백하게 한다.
+
+    반환 shape (STR 트랙 정리 문서, 2026-07-10 기준 추정):
+    - 완료: {"차종": "TUCSON", "차종_표시": "투싼", "증상": "계기판 깜빡임"}  (3개 키)
+    - 미완료: 위 3개 + {"상태": "need_차종"|"need_증상", "후속질문": "..."}
+    - 포기: 위 3개 + {"상태": "unresolved", "안내문": "..."}
+    """
+    if _str05_extract_slots is None:
+        return None
+    try:
+        return _str05_extract_slots(question, slot_state)
+    except TypeError:
+        # 혹시 실제 시그니처가 단일 인자(question)만 받는 형태일 경우의 보수적 폴백.
+        try:
+            return _str05_extract_slots(question)
+        except Exception:
+            return None
+    except Exception:
+        return None
+
+
+def parse_question(
+    question: str, *, csv_path: str | Path | None = None, slots: dict[str, Any] | None = None
+) -> dict[str, Any]:
     """
     질문 → 구조화 dict.
     TODO: LLM_CALL 교체 지점. 현재는 룰 기반으로 안정적인 데모를 먼저 만든다.
+
+    slots: STR-05 extract_slots()가 이미 완료 판정한 결과({차종,차종_표시,증상}).
+    주어지면 차종은 STR-05의 carRegistry 정규화 값을 그대로 신뢰하고(자체 정규식
+    재추출 안 함), 증상 키워드/부품카테고리는 STR-05가 준 "증상" 문구를 기준으로
+    추출한다. 주어지지 않으면(slots=None) 기존 방식(원문 전체에 정규식) 그대로.
     """
     df = _get_df(csv_path)
-    part, keywords = _extract_part_and_keywords(question)
+    if slots and slots.get("차종"):
+        model = slots["차종"]
+        part, keywords = _extract_part_and_keywords(slots.get("증상") or question)
+    else:
+        model = _extract_model(question, df)
+        part, keywords = _extract_part_and_keywords(question)
     intent = _detect_intent(question)
     parsed = {
         "raw_question": question,
         "intent": intent,
         "make": _extract_make(question),
-        "model": _extract_model(question, df),
+        "model": model,
         "year": _extract_year(question),
         "months": _extract_months(question),
         "part_category": part,
@@ -271,7 +402,12 @@ def structure_query(parsed: dict[str, Any]) -> dict[str, Any]:
 
 
 def _query_status_db(parsed: dict[str, Any], *, db_path: str | Path | None = None) -> dict[str, Any]:
-    if get_conn is None or query_status_summary is None:
+    """차종×부품카테고리 단위 5단계 시그널(defect_signals)을 조회한다.
+    (기존에는 신고 단위 STA-01/02 이진 상태를 조회했으나, 5단계 모델 도입 후
+    사용자 질문에 더 직접적으로 답이 되는 쪽은 시그널 단위 상태라 이쪽을 기본으로
+    바꿨다. 신고 단위 원본 기록이 필요하면 query_status_summary()를 별도로 쓸 수
+    있다 — 삭제하지 않고 남겨뒀다.)"""
+    if get_conn is None or query_signal_summary is None:
         return {"status": "UNAVAILABLE", "reason": "STA 모듈을 import하지 못했습니다.", "rows": []}
     db = Path(db_path or DEFAULT_DB_PATH)
     if not db.exists():
@@ -283,7 +419,7 @@ def _query_status_db(parsed: dict[str, Any], *, db_path: str | Path | None = Non
             return {"status": "NO_DB", "reason": f"상태 DB가 아직 없습니다: {db}", "rows": []}
     conn = get_conn(db)
     try:
-        df = query_status_summary(conn)
+        df = query_signal_summary(conn)
     finally:
         conn.close()
 
@@ -295,7 +431,7 @@ def _query_status_db(parsed: dict[str, Any], *, db_path: str | Path | None = Non
 
     return {
         "status": "OK",
-        "reason": "상태 DB 조회 완료",
+        "reason": "시그널 상태 조회 완료",
         "rows": df.head(20).to_dict("records"),
         "total_count": int(len(df)),
     }
@@ -419,11 +555,19 @@ def compose_answer_text(parsed: dict[str, Any], investigation: dict[str, Any], r
             return f"상태 추적 DB 조회가 어렵습니다. 사유: {result.get('reason')}"
         rows = result.get("rows", [])
         if not rows:
-            return f"{scope} 조건의 STA-01/STA-02 추적 기록은 아직 없습니다."
-        counts = pd.Series([r.get("status_code") for r in rows]).value_counts().to_dict()
+            return f"{scope} 조건의 결함 시그널 추적 기록은 아직 없습니다."
+        counts = pd.Series([r.get("signal_state") for r in rows]).value_counts().to_dict()
+        label_counts = {SIGNAL_LABEL_KO.get(k, k): v for k, v in counts.items()}
+        top = min(rows, key=lambda r: SIGNAL_PRIORITY_ORDER.get(r.get("signal_state"), 99))
+        top_label = SIGNAL_LABEL_KO.get(top.get("signal_state"), top.get("signal_state"))
+        top_vehicle = " ".join(str(top.get(k)) for k in ("make", "model", "year") if top.get(k)) or scope
         return (
-            f"{scope} 조건의 상태 추적 기록 {result.get('total_count', len(rows))}건을 찾았습니다. "
-            f"분포는 {counts}입니다. STA-01은 신규 결함 후보, STA-02는 기존 리콜 후 재발 후보입니다."
+            f"{scope} 조건의 결함 시그널 {result.get('total_count', len(rows))}건을 찾았습니다. "
+            f"상태 분포는 {label_counts}입니다. "
+            f"가장 우선 확인이 필요한 시그널: {top_vehicle} {top.get('part_category')} — {top_label} "
+            f"({top.get('state_reason', '')}) "
+            "신규(NEW)→증가(RISING)→리콜(RECALLED)→잠잠(DORMANT)→재발(RECURRING) 생애주기 기준이며, "
+            "재발·증가 상태를 우선 검토 대상으로 봅니다."
         )
 
     if isinstance(result, pd.DataFrame):
@@ -475,19 +619,89 @@ def format_answer(
     }
 
 
+# STR-05는 "부품명 단독"은 증상으로 인정하지 않는다(STR 트랙 정리 문서, 시행착오
+# 5번: "브레이크"만 있으면 거부하고 되묻는다). 그래서 애초에 구체적 증상 서술이
+# 필요 없는 의도(상태 조회, 통계 조회)까지 STR-05 게이트를 거치게 하면
+# "브레이크 상태 어때?" 같은 정상적인 질문이 불필요하게 되물어진다. 실제로
+# "차종+증상"이 핵심인 의도(조사/근거조회)만 게이트를 거치게 제한한다.
+_SLOT_GATED_INTENTS = {"investigate_signal", "evidence_samples"}
+
+
+def _is_incomplete_slot_state(state: Any) -> bool:
+    """
+    STR-05의 "상태" 값 중 미완료/포기를 판정한다.
+
+    STR 트랙 정리 문서(STR_트랙_정리 (1).md, 2026-07-10)의 시행착오 4번 예시에
+    "need_둘다"(여러 차종이 동시에 언급돼 특정 못 하는 경우)가 등장하는데, 이건
+    처음 문서(PDF)에는 없던 값이라 need_차종/need_증상 두 개만 하드코딩해뒀던
+    구버전 코드가 이 경우를 놓치고 있었다(발견 즉시 수정). "need_*" 전부를
+    나열하는 대신 접두사로 판정해서, 앞으로 문서에 없는 다른 need_* 변형이
+    추가되더라도 자동으로 커버되게 했다.
+    """
+    return state == "unresolved" or (isinstance(state, str) and state.startswith("need_"))
+
+
 def chat(
     question: str,
     session_history: list[dict[str, Any]] | None = None,
     *,
     csv_path: str | Path | None = None,
     db_path: str | Path | None = None,
+    slot_state: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """CHT-01 단일 진입점."""
-    parsed = parse_question(question, csv_path=csv_path)
+    """
+    CHT-01 단일 진입점.
+
+    slot_state: STR-05 extract_slots()가 이전 턴까지 쌓아온 차종/증상 슬롯
+    ({차종,차종_표시,증상[,상태,후속질문/안내문]}). 첫 턴은 None으로 시작.
+    이번 턴 응답의 "slot_state" 값을 다음 chat() 호출에 그대로 넘기면 멀티턴
+    되물음이 이어진다 — 상위(웹앱/세션) 레이어가 이 값을 턴 사이에 보관해야 한다.
+    완료(turn_status="OK") 후에는 slot_state가 None으로 초기화되어 돌아오므로,
+    다음 질문은 새 대화로 자연스럽게 시작된다.
+
+    STR-05가 아직 연동 안 된 환경(extract_slots_safe가 None 반환)에서는 이 슬롯
+    단계를 건너뛰고 기존 단일턴 정규식 경로로 동작한다 — 동작이 끊기지 않는다.
+    """
+    # 이미 진행 중인 슬롯 대화(slot_state 있음)는 이번 발화의 의도가 뭐로 보이든
+    # 끝까지 이어가야 한다("투싼이요" 한마디만으로는 의도를 제대로 못 읽는다).
+    # 새 대화라면 빠른 의도 판별로 게이트 필요 여부만 먼저 본다.
+    quick_intent = _detect_intent(question)
+    use_slot_gate = slot_state is not None or quick_intent in _SLOT_GATED_INTENTS
+    slots = extract_slots_safe(question, slot_state) if use_slot_gate else None
+
+    if slots is not None and _is_incomplete_slot_state(slots.get("상태")):
+        turn_status = "UNRESOLVED" if slots["상태"] == "unresolved" else "NEED_MORE_INFO"
+        answer_text = slots.get("안내문") or slots.get("후속질문") or "차종과 증상을 조금 더 알려주시겠어요?"
+        result = {
+            "question": question,
+            "turn_status": turn_status,
+            "slot_state": slots,
+            "answer_text": answer_text,
+            "safety_notice": "소비자 신고 기반 분석이며 결함·리콜 확정 판단은 규제기관/제조사 조사 영역입니다.",
+        }
+        if session_history is not None:
+            session_history.append({"question": question, "turn_status": turn_status, "answer_text": answer_text})
+        return result
+
+    # 여기 도달 = slots가 None(STR-05 미연동, 기존 정규식 경로) 이거나 슬롯이 완료된 상태.
+    parsed = parse_question(question, csv_path=csv_path, slots=slots)
     plan = structure_query(parsed)
     investigation = run_investigation(plan, csv_path=csv_path, db_path=db_path)
     review_result = review(parsed, investigation)
     answer = format_answer(question, parsed, plan, investigation, review_result)
+    answer["turn_status"] = "OK"
+    answer["slot_state"] = None  # 슬롯이 완료됐으니 다음 질문은 새 대화로 취급
+
+    # STR-05가 이번 턴에 실제로 관여해 완료됐다면(slots is not None), 조사 결과보다
+    # 먼저 "이렇게 이해했어요, 맞나요?" 확인 문구를 보여준다(요청 반영, 2026-07-13).
+    # answer_text 안에 이어붙이는 것과 별개로 confirm_sentence 키로도 따로 담아서,
+    # UI가 원하면 확인 문구만 별도 말풍선으로 먼저 보여주는 식으로 나눠 쓸 수 있게 했다.
+    answer["confirm_sentence"] = None
+    if slots is not None:
+        confirm = confirm_sentence_safe(slots)
+        if confirm:
+            answer["confirm_sentence"] = confirm
+            answer["answer_text"] = f"{confirm}\n\n{answer['answer_text']}"
 
     if session_history is not None:
         session_history.append({
