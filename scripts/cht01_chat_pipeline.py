@@ -18,23 +18,53 @@ MOBISCOPE CHT-01 — 채팅 연동 파이프라인
 - "결함 확정", "리콜 확정", "사지 마라" 식 단정 금지
 - 모든 답변에는 미검증 소비자 신고 기준임을 남긴다.
 - VIN은 표시하지 않는다.
+
+⚠️ 2026-07-14 개정 — 효선님 실제 INV-01/02/03 파일 수령 후 전면 재작업
+    query_templates.py / investigation_loop_v2.py가 이전에 CHT-01이 기대하던
+    인터페이스와 완전히 달라서(함수명·시그니처·반환 shape 전부 변경) 이 파일
+    전체를 다시 연결했다. 바뀐 내용은 각 함수 docstring/인라인 주석에 "2026-07-14"
+    표시로 남겨뒀다. 아래는 이번에 함께 정리한 알려진 제약사항 — 코드가 조용히
+    기능을 빠뜨린 게 아니라 의도적으로 미룬 부분임을 명시해둔다:
+
+    1. llm_call 스텁(_stub_llm_call): investigate_ad_hoc()이 요구하는 LLM 콜백을
+       결정론적 임시 로직으로 대체했다. 실제 추론이 아니다 — 팀 공용 LLM API
+       래퍼가 준비되면 chat(..., llm_call=real_llm_call)로 교체.
+    2. check_recall_match() / get_us_kr_gap() 미연동: 이 두 함수는
+       (model, model_year, recalls_df) / (model, us_recalls_df, kr_recalls_df)처럼
+       df 하나가 아니라 별도의 리콜 CSV를 인자로 받는데, 그 CSV들의 실제 경로가
+       아직 확정되지 않았다(STA 쪽 recall_records 테이블과는 다른 데이터 소스로
+       보임). CHT-01의 "리콜 여부/한미 시차" 질문은 지금도 STA의 defect_signals
+       (RECALLED 상태·recall_id)로 답하고 있어 기능 공백은 아니지만, 이 두 함수
+       자체는 아직 CHT-01 어디에서도 호출하지 않는다 — 리콜 CSV 경로가 정해지면
+       추가 연동 필요.
+    3. safety_flag_summary는 load_enriched_df() 결과가 아니라 원본 CSV를 별도로
+       한 번 더 읽는다(_safety_flag_summary 참고) — CRASH/FIRE/INJURED/DEATHS가
+       enriched df 조인에서 빠지기 때문. 모집단이 달라질 수 있음(원본 CSV 전체 vs
+       STR이 처리한 건수)을 알고 있을 것.
 """
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
+import inspect
 import re
 import sqlite3
 
 import pandas as pd
 
-from inv01_query_templates import (
-    DEFAULT_CSV_PATH,
-    load_processed,
-    run_query_template,
-    q_vehicle_component_summary,
+# ⚠️ 2026-07-14 개정 — 효선님의 실제 INV-01/02/03 파일(query_templates.py,
+# investigation_loop_v2.py) 수령 후 CHT-01을 전면 재작업했다. 기존에 CHT-01이
+# 기대하던 인터페이스(run_query_template, q_vehicle_component_summary,
+# load_processed, DEFAULT_CSV_PATH, investigate_ad_hoc(df, make=, model=, ...))가
+# 새 파일에는 전혀 없다 — INV 트랙이 처음부터 다시 설계된 것에 가깝다. 아래는
+# 새 인터페이스 기준으로 다시 연결한 것.
+from query_templates import (
+    RAW_CSV_PATH,
+    STRUCT_JSONL_PATH,
+    TOOL_REGISTRY,
+    load_enriched_df,
 )
-from inv02_03_investigation_loop import investigate_ad_hoc
+from investigation_loop_v2 import investigate_ad_hoc
 
 try:
     from sta01_02_status_tracking import (
@@ -84,6 +114,53 @@ def _try_import_str05(name: str):
 
 _str05_extract_slots = _try_import_str05("extract_slots")
 _str05_confirm_sentence = _try_import_str05("confirm_sentence")
+
+
+# ------------------------------------------------------------------
+# investigate_ad_hoc() -> run_investigation_loop()는 llm_call(prompt_type, context)
+# 콜백이 반드시 있어야 동작한다(효선님 코드의 example_llm_call은 일부러
+# NotImplementedError를 던짐 — "팀 공용 API 래퍼로 교체 필요"라고 명시돼 있음).
+# CHT-01은 지금까지 전 구간이 규칙 기반이라 실제 LLM 호출 자체가 없었으므로,
+# 여기서는 코드 경로가 죽지 않도록 "결정론적 임시 스텁"을 하나 둔다.
+#
+# 진짜 LLM 붙일 때는 이 함수 하나만(그리고 필요하면 실제 프롬프트) 교체하면 되고,
+# chat()/run_investigation() 등 나머지 코드는 손댈 필요 없다 — investigate_ad_hoc()
+# 호출부에서 llm_call 인자로 넘기는 지점 한 곳만 바꾸면 됨.
+# ------------------------------------------------------------------
+def _stub_llm_call(prompt_type: str, context: dict[str, Any]) -> dict[str, Any]:
+    """
+    임시 스텁. 3가지 prompt_type을 결정론적 규칙으로 흉내만 낸다(진짜 추론 아님):
+    - generate_hypothesis: 정찰 결과(get_symptom_distribution)에서 최다 증상으로
+      가설 문장을 기계적으로 조립.
+    - select_query_or_conclude: 스텁 단계에서는 추가 쿼리를 고르지 않고 항상
+      바로 결론(conclude)으로 넘어간다 — 실제 LLM이 붙기 전까지는 "정찰 결과만
+      보고 판단"하는 최소 동작만 보장.
+    - judge_hypothesis: 정찰 단계의 total_reports가 3건 이상이면 유지(retain),
+      그 외엔 보류(None=HOLD). "결함 확정"처럼 보이는 과잉 판단을 피하려고
+      기각(False)은 스텁에서 아예 내리지 않는다(정말 근거가 없으면 HOLD로 둠).
+    """
+    if prompt_type == "generate_hypothesis":
+        scouting = context.get("scouting_results", {})
+        symptom_dist = scouting.get("get_symptom_distribution", {}) or {}
+        counts = symptom_dist.get("symptom_counts") or {}
+        if counts:
+            top_symptom = max(counts, key=counts.get)
+            return {"hypothesis": f"'{top_symptom}' 증상이 신고에서 두드러지게 반복되고 있다(스텁 가설, 실제 LLM 아님)."}
+        return {"hypothesis": "정찰 결과에서 뚜렷한 패턴을 찾지 못함(스텁 가설, 실제 LLM 아님)."}
+
+    if prompt_type == "select_query_or_conclude":
+        return {"action": "conclude"}
+
+    if prompt_type == "judge_hypothesis":
+        all_results = context.get("all_results", [])
+        scouting = all_results[0] if all_results else {}
+        symptom_dist = scouting.get("get_symptom_distribution", {}) if isinstance(scouting, dict) else {}
+        total = symptom_dist.get("total_reports", 0) if isinstance(symptom_dist, dict) else 0
+        if total >= 3:
+            return {"is_retained": True, "reason": f"정찰 단계 관련 신고 {total}건(스텁 판정, 실제 LLM 아님)."}
+        return {"is_retained": None, "reason": f"정찰 단계 관련 신고 {total}건으로 근거 부족(스텁 판정, 실제 LLM 아님)."}
+
+    raise ValueError(f"알 수 없는 prompt_type: {prompt_type!r}")
 
 
 # STR-04에서 확정된 v3 스키마는 8종(ELECTRICAL_SYSTEM/ADAS/INSTRUMENT_CLUSTER/
@@ -156,24 +233,48 @@ MODEL_ALIASES = {
     "PALISADE": ["팰리세이드", "palisade"],
 }
 
+# 2026-07-14: 새 INV-01(query_templates.py)의 TOOL_REGISTRY 실제 키 이름 기준으로
+# 다시 매핑했다. 예전 이름(component_distribution/component_by_year/recent_surge/
+# text_evidence_samples)은 새 INV-01에 대응 함수가 없어서 전부 정리했다:
+#   - component_distribution -> get_symptom_distribution (부품 카테고리 안 증상 분포로 대체)
+#   - component_by_year      -> get_model_year_breakdown (차종×연식 조합, 원래도 이 뜻이었음).
+#                               단순 이름 교체가 아니라 _detect_intent()에도 전용 분기
+#                               ("model_year_breakdown")를 새로 추가했다 — 기존엔 "연식"
+#                               키워드 분기가 먼저 걸려서 "2025년식 투싼 조합" 같은 질문이
+#                               이 템플릿에 영영 도달 못 하는 죽은 매핑이었다(테스트로 발견).
+#   - recent_surge           -> 삭제. _detect_intent()가 "recent_surge"를 반환하는 경로가
+#                               애초에 없어(항상 investigate_signal로 감) 죽은 코드였음.
+#   - evidence_samples       -> 별도 로컬 함수(_evidence_samples_from_df)로 대체.
+#                               새 INV-01엔 "원문 근거 몇 건 보여줘" 함수 자체가 없어졌음
+#                               (조사 루프 안에서만 근거를 다루는 구조로 바뀜).
+#   - safety_flag_summary    -> 별도 로컬 함수(_safety_flag_summary)로 대체. 새 INV-01의
+#                               load_enriched_df()는 CRASH/FIRE/INJURED/DEATHS 컬럼을
+#                               조인에서 아예 빼버려서(odino/model/model_year/date_filed만
+#                               가져옴), TOOL_REGISTRY 함수로는 이 통계를 낼 수 없다.
+#                               원본 CSV를 직접 다시 읽어 계산한다.
 INTENT_TO_TEMPLATE = {
-    "year_distribution": "year_distribution",
-    "monthly_trend": "monthly_trend",
-    "component_distribution": "component_distribution",
-    "model_ranking": "model_ranking",
-    "safety_flag_summary": "safety_flag_summary",
-    "component_by_year": "component_by_year",
-    "recent_surge": "recent_surge",
-    "evidence_samples": "text_evidence_samples",
+    "year_distribution": "get_year_distribution",
+    "monthly_trend": "get_monthly_trend",
+    "component_distribution": "get_symptom_distribution",
+    "model_ranking": "get_model_distribution",
+    "model_year_breakdown": "get_model_year_breakdown",
 }
+# TOOL_REGISTRY를 안 거치고 CHT-01이 직접 처리하는 intent들(아래 run_investigation 참고)
+LOCAL_INTENTS = {"safety_flag_summary", "evidence_samples"}
 
-_DF_CACHE: dict[str, pd.DataFrame] = {}
+_DF_CACHE: dict[tuple[str, str], pd.DataFrame] = {}
 
 
-def _get_df(csv_path: str | Path | None = None) -> pd.DataFrame:
-    key = str(csv_path or DEFAULT_CSV_PATH)
+def _get_df(csv_path: str | Path | None = None, jsonl_path: str | Path | None = None) -> pd.DataFrame:
+    """INV-01 load_enriched_df() 결과를 캐싱해서 재사용한다.
+    2026-07-14: 예전엔 원본 CSV 하나만 읽는 load_processed(csv_path)였는데,
+    새 INV-01은 원본 CSV + STR JSONL을 조인한 load_enriched_df(raw, jsonl)로
+    바뀌어서 캐시 키도 (csv, jsonl) 튜플로 바꿨다."""
+    csv_key = str(csv_path or RAW_CSV_PATH)
+    jsonl_key = str(jsonl_path or STRUCT_JSONL_PATH)
+    key = (csv_key, jsonl_key)
     if key not in _DF_CACHE:
-        _DF_CACHE[key] = load_processed(csv_path or DEFAULT_CSV_PATH)
+        _DF_CACHE[key] = load_enriched_df(csv_key, jsonl_key)
     return _DF_CACHE[key]
 
 
@@ -195,8 +296,10 @@ def _extract_model(question: str, df: pd.DataFrame | None = None) -> str | None:
         if any(a.lower() in q for a in aliases):
             return model
     # alias에 없더라도 CSV 모델명이 영어로 직접 들어오면 잡는다.
-    if df is not None and "MODELTXT" in df.columns:
-        models = sorted({str(x).strip().upper() for x in df["MODELTXT"].dropna().unique()}, key=len, reverse=True)
+    # 2026-07-14: 새 load_enriched_df()는 컬럼명이 소문자 "model"이다
+    # (구 inv01_query_templates.load_processed()의 대문자 "MODELTXT"에서 변경됨).
+    if df is not None and "model" in df.columns:
+        models = sorted({str(x).strip().upper() for x in df["model"].dropna().unique()}, key=len, reverse=True)
         for m in models:
             if m and m.lower() in q:
                 return m
@@ -221,9 +324,19 @@ def _extract_months(question: str) -> int:
     return 6
 
 
-def _extract_part_and_keywords(question: str) -> tuple[str | None, list[str]]:
+def _extract_part_and_keywords(question: str) -> tuple[str | None, list[str], list[str]]:
+    """반환: (part_category, 영문 키워드 목록, 매칭된 한국어 키워드 목록).
+
+    2026-07-14: 새 INV-01의 _filter_base(df, part_category, symptom)는 symptom을
+    STR 구조화 결과의 한국어 symptoms 리스트와 "부분 문자열 포함" 방식으로
+    대조한다(원문 CDESCR 영어 검색이 아님). 그래서 영문 키워드만으론 새 INV-01
+    필터에 못 넘기고, 매칭된 한국어 트리거 단어 자체가 필요해졌다 — 세 번째
+    반환값이 그 용도다(예: "계기판" -> STR이 뽑은 "계기판 깜빡임" 같은 문구와
+    부분 일치).
+    """
     part: str | None = None
     keywords: list[str] = []
+    ko_hits: list[str] = []
     for ko, p in PART_CATEGORY_BY_KO.items():
         if ko.lower() in question.lower():
             part = p
@@ -231,6 +344,7 @@ def _extract_part_and_keywords(question: str) -> tuple[str | None, list[str]]:
     for ko, ens in TEXT_KEYWORDS_BY_KO.items():
         if ko.lower() in question.lower():
             keywords.extend(ens)
+            ko_hits.append(ko)
     # 영어 증상 직접 입력 보조
     for kw in ["dashboard", "cluster", "fire", "smoke", "stall", "brake", "camera", "lane", "battery", "charging", "engine"]:
         if kw in question.lower():
@@ -242,7 +356,13 @@ def _extract_part_and_keywords(question: str) -> tuple[str | None, list[str]]:
         if kk not in seen:
             seen.add(kk)
             out.append(k)
-    return part, out[:10]
+    seen_ko = set()
+    ko_out = []
+    for k in ko_hits:
+        if k not in seen_ko:
+            seen_ko.add(k)
+            ko_out.append(k)
+    return part, out[:10], ko_out[:5]
 
 
 def _detect_intent(question: str) -> str:
@@ -258,6 +378,13 @@ def _detect_intent(question: str) -> str:
         return "evidence_samples"
     if any(k in q for k in ["급증", "시그널", "최근", "surge", "증가"]):
         return "investigate_signal"
+    # 2026-07-14 신규: "차종×연식 조합"(예: "2025년식 투싼 집중도")은 반드시
+    # "연식" 단독 체크보다 먼저 검사해야 한다 — 순서를 바꾸면 아래 "연식" 분기가
+    # 먼저 걸려서 이 경로 자체가 영영 도달 불가능해진다(실제로 리팩터링 중
+    # "차종별연식별 조합 알려줘"가 year_distribution으로 잘못 빠지는 걸 테스트로
+    # 발견함). "차종"+"연식"이 함께 있거나 "조합"이 명시되면 이쪽으로 보낸다.
+    if "조합" in q or ("차종" in q and ("연식" in q or "년식" in q)):
+        return "model_year_breakdown"
     if any(k in q for k in ["연식", "year", "모델연도"]):
         return "year_distribution"
     if any(k in q for k in ["월별", "추이", "trend", "monthly"]):
@@ -336,7 +463,11 @@ def extract_slots_safe(question: str, slot_state: dict[str, Any] | None = None) 
 
 
 def parse_question(
-    question: str, *, csv_path: str | Path | None = None, slots: dict[str, Any] | None = None
+    question: str,
+    *,
+    csv_path: str | Path | None = None,
+    jsonl_path: str | Path | None = None,
+    slots: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
     질문 → 구조화 dict.
@@ -347,13 +478,14 @@ def parse_question(
     재추출 안 함), 증상 키워드/부품카테고리는 STR-05가 준 "증상" 문구를 기준으로
     추출한다. 주어지지 않으면(slots=None) 기존 방식(원문 전체에 정규식) 그대로.
     """
-    df = _get_df(csv_path)
+    df = _get_df(csv_path, jsonl_path)
+    symptom_source = (slots.get("증상") if slots else None) or question
     if slots and slots.get("차종"):
         model = slots["차종"]
-        part, keywords = _extract_part_and_keywords(slots.get("증상") or question)
+        part, keywords, ko_hits = _extract_part_and_keywords(symptom_source)
     else:
         model = _extract_model(question, df)
-        part, keywords = _extract_part_and_keywords(question)
+        part, keywords, ko_hits = _extract_part_and_keywords(question)
     intent = _detect_intent(question)
     parsed = {
         "raw_question": question,
@@ -364,6 +496,10 @@ def parse_question(
         "months": _extract_months(question),
         "part_category": part,
         "text_keywords": keywords,
+        # 2026-07-14 신규: 새 INV-01 _filter_base()가 요구하는 한국어 symptom 필터값.
+        # STR-05 slots가 있으면 그 "증상" 문구를 그대로(가장 정확), 없으면 매칭된
+        # 한국어 트리거 단어 중 첫 번째를 쓴다. 아무것도 없으면 None(필터 생략).
+        "symptom_text": (slots.get("증상") if slots else None) or (ko_hits[0] if ko_hits else None),
     }
     if parsed["part_category"] is None and keywords and intent in {"investigate_signal", "evidence_samples"}:
         # 증상 키워드가 있지만 파트가 없으면 전장/SW 프로젝트 범위에 맞춰 기본 전장으로 둔다.
@@ -377,21 +513,20 @@ def structure_query(parsed: dict[str, Any]) -> dict[str, Any]:
         action = "ad_hoc_investigation"
     elif intent == "status_tracking":
         action = "status_query"
+    elif intent in LOCAL_INTENTS:
+        action = "local_query"
     else:
         action = "query_template"
+
+    # 2026-07-14: 새 INV-01 쿼리 함수들은 part_category/symptom 2개만 받는다
+    # (구버전의 make/model/year/text_keywords 필터는 새 함수 시그니처에 없음 —
+    # _filter_base(df, part_category, symptom) 참고). make/model/year는 여전히
+    # parsed에 남겨서 화면 표시(scope 문구)와, 조합 조회 결과에서 특정
+    # 차종·연식만 뽑아내는 후처리(run_investigation의 _slice_breakdown)에 쓴다.
     params = {
-        "make": parsed.get("make"),
-        "model": parsed.get("model"),
-        "year": parsed.get("year"),
         "part_category": parsed.get("part_category"),
-        "text_keywords": parsed.get("text_keywords") or None,
+        "symptom": parsed.get("symptom_text"),
     }
-    # 위험 플래그 요약은 FIRE/CRASH/INJURED/DEATHS 컬럼 통계가 핵심이므로
-    # "화재"라는 단어가 질문에 들어갔다고 CDESCR 원문 검색으로 다시 좁히지 않는다.
-    if intent == "safety_flag_summary":
-        params.pop("text_keywords", None)
-        params.pop("part_category", None)
-    # None 값 제거. text_keywords만 None이면 템플릿에 안 넘긴다.
     params = {k: v for k, v in params.items() if v not in (None, [], "")}
     return {
         "action": action,
@@ -437,38 +572,210 @@ def _query_status_db(parsed: dict[str, Any], *, db_path: str | Path | None = Non
     }
 
 
-def run_investigation(plan: dict[str, Any], *, csv_path: str | Path | None = None, db_path: str | Path | None = None) -> dict[str, Any]:
-    df = _get_df(csv_path)
+_RAW_DF_CACHE: dict[str, pd.DataFrame] = {}
+
+
+def _get_raw_df(csv_path: str | Path | None = None) -> pd.DataFrame:
+    """원본 신고 CSV를 가공 없이 그대로 읽어 캐싱한다.
+
+    2026-07-14 신규: 새 INV-01의 load_enriched_df()는 CRASH/FIRE/INJURED/DEATHS
+    컬럼을 조인에서 아예 빼버린다(odino/model/model_year/date_filed만 원본에서
+    가져옴 — query_templates.py의 load_enriched_df 본문 참고). 위험 플래그 요약은
+    이 컬럼들이 있어야 계산되므로, enriched df를 거치지 않고 원본을 별도로 한 번
+    더 읽는다. STR 구조화 결과와 조인할 필요가 없는 단순 집계라 이렇게 해도
+    안전하다(원본 신고 전체 모집단 기준 통계가 오히려 더 정확함 — enriched df는
+    STR이 이미 처리한 건으로만 한정돼 있어 모집단이 더 작음).
+    """
+    key = str(csv_path or RAW_CSV_PATH)
+    if key not in _RAW_DF_CACHE:
+        _RAW_DF_CACHE[key] = pd.read_csv(key)
+    return _RAW_DF_CACHE[key]
+
+
+def _flag_true(series: pd.Series) -> pd.Series:
+    """CRASH/FIRE 같은 플래그 컬럼을 Y/N, True/False, 1/0 어떤 표기든 bool로 통일."""
+    return series.astype(str).str.strip().str.upper().isin({"Y", "YES", "TRUE", "1"})
+
+
+def _safety_flag_summary(csv_path: str | Path | None = None) -> dict[str, Any]:
+    """화재/충돌/부상/사망 플래그 요약. 원본 CSV를 직접 읽는다(위 docstring 참고).
+
+    반환 shape은 리팩터링 전과 동일하게 유지했다(total_count/fire_count/fire_pct/
+    crash_count/crash_pct/injured_count/deaths_count) — compose_answer_text()의
+    기존 분기를 그대로 재사용하기 위해서다.
+    """
+    try:
+        raw = _get_raw_df(csv_path)
+    except Exception as e:
+        return {"status": "NO_DATA", "reason": f"원본 CSV를 읽지 못했습니다: {e}"}
+
+    missing = [c for c in ("CRASH", "FIRE", "INJURED", "DEATHS") if c not in raw.columns]
+    if missing:
+        return {"status": "NO_DATA", "reason": f"원본 CSV에 다음 컬럼이 없습니다: {missing}"}
+
+    total = len(raw)
+    if total == 0:
+        return {"status": "NO_DATA", "reason": "원본 CSV에 행이 없습니다."}
+
+    fire_count = int(_flag_true(raw["FIRE"]).sum())
+    crash_count = int(_flag_true(raw["CRASH"]).sum())
+    injured_count = int(pd.to_numeric(raw["INJURED"], errors="coerce").fillna(0).sum())
+    deaths_count = int(pd.to_numeric(raw["DEATHS"], errors="coerce").fillna(0).sum())
+
+    return {
+        "status": "ok",
+        "total_count": total,
+        "fire_count": fire_count,
+        "fire_pct": round(fire_count / total * 100, 1),
+        "crash_count": crash_count,
+        "crash_pct": round(crash_count / total * 100, 1),
+        "injured_count": injured_count,
+        "deaths_count": deaths_count,
+    }
+
+
+def _evidence_samples_from_df(
+    df: pd.DataFrame, part_category: str | None, symptom: str | None, limit: int = 8
+) -> dict[str, Any]:
+    """원문 근거(evidence_quote) 몇 건을 골라서 보여준다.
+
+    2026-07-14 신규: 새 INV-01(query_templates.py)에는 "근거 샘플 몇 건 보여줘"에
+    해당하는 함수가 없다(TOOL_REGISTRY에 없음 — 새 설계는 근거를 조사 루프
+    내부에서만 다룬다). CHT-01이 필요로 하는 건 단순 필터+샘플링이라 INV-01
+    조사 루프(투입 비용이 훨씬 큰 LLM 다단계 루프)까지 갈 필요 없이, enriched df
+    (STR 구조화 결과가 이미 evidence_quote를 포함하고 있음)에서 직접 뽑는다.
+    """
+    if "evidence_quote" not in df.columns:
+        return {"status": "no_data", "count": 0, "reason": "evidence_quote 컬럼이 없습니다(STR 산출물 확인 필요)."}
+
+    sub = df.copy()
+    if part_category and "part_category" in sub.columns:
+        sub = sub[sub["part_category"] == part_category]
+    if symptom and "symptoms" in sub.columns:
+        sub = sub[sub["symptoms"].apply(lambda lst: any(symptom in s for s in lst) if isinstance(lst, list) else False)]
+    sub = sub[sub["evidence_quote"].notna() & (sub["evidence_quote"].astype(str).str.strip() != "")]
+
+    if len(sub) == 0:
+        return {"status": "no_data", "count": 0}
+
+    cols = [c for c in ("odino", "evidence_quote", "severity", "symptoms") if c in sub.columns]
+    samples = sub[cols].head(limit).to_dict("records")
+    return {"status": "ok", "count": len(sub), "samples": samples}
+
+
+def run_investigation(
+    plan: dict[str, Any],
+    *,
+    csv_path: str | Path | None = None,
+    jsonl_path: str | Path | None = None,
+    db_path: str | Path | None = None,
+    llm_call: Callable[..., dict] = _stub_llm_call,
+) -> dict[str, Any]:
+    df = _get_df(csv_path, jsonl_path)
     action = plan["action"]
     parsed = plan["parsed"]
 
     if action == "ad_hoc_investigation":
-        result = investigate_ad_hoc(
-            df,
-            make=parsed.get("make"),
-            model=parsed.get("model"),
-            year=parsed.get("year"),
-            part_category=parsed.get("part_category"),
-            text_keywords=parsed.get("text_keywords") or None,
-        )
+        # 2026-07-14: investigate_ad_hoc() 시그니처가 통째로 바뀌었다.
+        #   구: investigate_ad_hoc(df, make=, model=, year=, part_category=, text_keywords=)
+        #   신: investigate_ad_hoc(question_parsed: dict, df, llm_call)
+        # question_parsed의 키("model","symptom","part_category")는 investigation_loop_v2.py의
+        # investigate_ad_hoc() 본문이 실제로 읽는 키만 맞추면 된다(model_year는 주석 예시에는
+        # 있지만 본문에서 안 씀 - any([model, symptom]) 게이트에만 관여). "model"은 STR-05
+        # 실제 산출물이 영문 코드(예: "TUCSON")라 그대로 넣는다 — 함수 내부에서 model 값 자체를
+        # 문자열로 다시 파싱하지 않고 존재 여부만 확인하므로 영문 코드로도 문제없다.
+        question_parsed = {
+            "model": parsed.get("model"),
+            "model_year": parsed.get("year"),
+            "symptom": parsed.get("symptom_text"),
+            "part_category": parsed.get("part_category"),
+        }
+        result = investigate_ad_hoc(question_parsed, df, llm_call)
         return {"kind": action, "result": result}
 
     if action == "status_query":
         return {"kind": action, "result": _query_status_db(parsed, db_path=db_path)}
 
+    if action == "local_query":
+        intent = parsed.get("intent")
+        if intent == "safety_flag_summary":
+            return {"kind": action, "template": "safety_flag_summary", "result": _safety_flag_summary(csv_path)}
+        if intent == "evidence_samples":
+            result = _evidence_samples_from_df(
+                df, parsed.get("part_category"), parsed.get("symptom_text"), limit=8
+            )
+            return {"kind": action, "template": "evidence_samples", "result": result}
+        return {"kind": action, "error": f"알 수 없는 로컬 intent: {intent}"}
+
     template = plan.get("template")
     if not template:
         return {"kind": action, "error": "질문 의도를 쿼리 템플릿에 매핑하지 못했습니다."}
+    if template not in TOOL_REGISTRY:
+        return {"kind": action, "error": f"INV-01 TOOL_REGISTRY에 없는 템플릿입니다: {template}"}
 
+    func = TOOL_REGISTRY[template]["func"]
     params = dict(plan.get("params") or {})
-    if template == "recent_surge":
-        params["months"] = parsed.get("months") or 6
-    if template == "component_by_year" and not (params.get("part_category") or params.get("component_keyword")):
-        params["part_category"] = parsed.get("part_category") or "ELECTRICAL_SYSTEM"
-    if template == "text_evidence_samples":
-        params.setdefault("limit", 8)
-    result = run_query_template(template, df, params)
-    return {"kind": action, "template": template, "result": result}
+    if template == "get_monthly_trend":
+        params.setdefault("months", parsed.get("months") or 12)
+
+    # 2026-07-14: TOOL_REGISTRY 6개 함수 전부 part_category가 "필수" 위치 인자다
+    # (기본값 없음 - inspect.signature로 실측 확인함, 하나라도 안 넘기면
+    # TypeError). 질문에서 부품 카테고리를 못 뽑았으면 프로젝트 기본 범위인
+    # 전장/SW로 채우되, 사용자가 요청하지 않은 범위로 조용히 좁혀지는 것이므로
+    # defaulted 플래그를 남겨서 답변에서 투명하게 밝힌다("전체" 아니라
+    # "ELECTRICAL_SYSTEM 기준"이라고).
+    defaulted_part_category = "part_category" not in params
+    params.setdefault("part_category", "ELECTRICAL_SYSTEM")
+
+    # get_symptom_distribution(df, part_category)만 symptom 인자 자체가 없다
+    # (나머지 5개는 symptom=None 기본값 있음 - 역시 실측 확인). 함수가 실제로
+    # 받는 키워드만 골라 넘겨서, TOOL_REGISTRY 쪽 시그니처가 앞으로 바뀌어도
+    # 이 호출부가 안 죽게 했다(하드코딩 특례를 늘리는 대신 시그니처 기반으로).
+    accepted = set(inspect.signature(func).parameters.keys())
+    params = {k: v for k, v in params.items() if k in accepted}
+
+    result = func(df, **params)
+
+    # 2026-07-14: 새 INV-01 함수들은 make/model/year로 필터링하지 않고 항상
+    # "part_category(+symptom) 전체 분포"를 돌려준다(_filter_base 참고 - 그 두
+    # 파라미터만 받음). 사용자가 특정 차종·연식을 물었으면(예: "2025년식 투싼"),
+    # 전체 분포에서 그 조합만 뽑아 answer 단계에서 강조할 수 있도록 slice를 같이
+    # 담아 보낸다. compose_answer_text가 이 slice를 우선 사용한다.
+    sliced = _slice_breakdown(result, template, parsed.get("model"), parsed.get("year"))
+    return {
+        "kind": action,
+        "template": template,
+        "result": result,
+        "sliced": sliced,
+        "part_category_used": params.get("part_category"),
+        "part_category_defaulted": defaulted_part_category,
+    }
+
+
+def _slice_breakdown(result: dict[str, Any], template: str, model: str | None, year: str | None) -> dict[str, Any] | None:
+    """get_model_year_breakdown/get_year_distribution/get_model_distribution 결과에서
+    사용자가 물은 특정 차종·연식 조합만 뽑아낸다. 해당 없으면 None."""
+    if not isinstance(result, dict) or result.get("status") != "ok":
+        return None
+
+    if template == "get_model_year_breakdown" and (model or year):
+        breakdown = result.get("breakdown", {})
+        if model and model in breakdown:
+            model_years = breakdown[model]
+            if year and year in model_years:
+                return {"model": model, "year": year, "count": model_years[year]}
+            return {"model": model, "years": model_years, "count": sum(model_years.values())}
+        return None
+
+    if template == "get_year_distribution" and year:
+        count = result.get("year_counts", {}).get(str(year))
+        return {"year": year, "count": count} if count is not None else None
+
+    if template == "get_model_distribution" and model:
+        count = result.get("model_counts", {}).get(model)
+        return {"model": model, "count": count} if count is not None else None
+
+    return None
 
 
 def review(parsed: dict[str, Any], investigation: dict[str, Any]) -> dict[str, Any]:
@@ -486,11 +793,26 @@ def review(parsed: dict[str, Any], investigation: dict[str, Any]) -> dict[str, A
         return {"status": "PASS", "reason": "조회 결과 통과"}
 
     if isinstance(result, dict):
-        if result.get("status") in {"NO_DATA", "NO_DB", "UNAVAILABLE"}:
-            return {"status": "INSUFFICIENT", "reason": result.get("reason") or result.get("status")}
-        if result.get("status") == "INSUFFICIENT":
+        # investigate_ad_hoc()(run_investigation_loop) 결과는 "status"가 아니라
+        # "overall_status"를 쓴다(RETAINED/REJECTED/HOLD). 2026-07-14 신규 분기.
+        if investigation.get("kind") == "ad_hoc_investigation":
+            overall = result.get("overall_status")
+            if overall == "HOLD":
+                return {"status": "INSUFFICIENT", "reason": result.get("decision_reason") or "근거 부족(HOLD)"}
+            if overall in {"RETAINED", "REJECTED"}:
+                return {"status": "PASS", "reason": f"조사 루프 완료({overall})"}
+            return {"status": "INSUFFICIENT", "reason": f"알 수 없는 overall_status: {overall!r}"}
+
+        # 새 INV-01 쿼리 함수는 status를 소문자로 준다("no_data"/"ok").
+        # STA 쪽(_query_status_db)과 safety_flag_summary는 기존처럼 대문자를 쓴다
+        # (STA는 이 파일이 직접 관리하는 값이라 원래 관례 유지) — 그래서 대소문자
+        # 둘 다 받아야 한다.
+        status_val = result.get("status")
+        if status_val in {"no_data", "NO_DATA", "NO_DB", "UNAVAILABLE", "no_match", "no_us_recall"}:
+            return {"status": "INSUFFICIENT", "reason": result.get("reason") or str(status_val)}
+        if status_val == "INSUFFICIENT":
             return {"status": "INSUFFICIENT", "reason": result.get("decision_reason", "근거 부족")}
-        if result.get("status") == "REJECTED":
+        if status_val == "REJECTED":
             return {"status": "PASS", "reason": "부정/기각 결과도 답변 가능"}
         return {"status": "PASS", "reason": "dict 결과 통과"}
 
@@ -524,33 +846,56 @@ def compose_answer_text(parsed: dict[str, Any], investigation: dict[str, Any], r
     scope = _scope_text(parsed)
     result = investigation.get("result")
     review_status = review_result.get("status")
+    kind = investigation.get("kind")
 
     if review_status == "FAIL":
         return f"요청을 처리하지 못했습니다. 사유: {review_result.get('reason')}"
 
-    if investigation.get("kind") == "ad_hoc_investigation" and isinstance(result, dict):
-        summary = result.get("summary", {})
-        surge = summary.get("recent_surge", {}) if isinstance(summary, dict) else {}
-        samples = result.get("evidence_samples", []) or []
-        lines = [
-            f"{scope} 기준으로 조회했습니다.",
-            f"판정: {result.get('status')} — {result.get('decision_reason')}",
-            f"기본 범위 신고 {summary.get('base_count', 0)}건, 관련 부품/증상 신고 {result.get('support_count', 0)}건입니다.",
-        ]
-        if surge:
-            lines.append(
-                f"최근 구간 급증 판단: {surge.get('surge_level')} "
-                f"(최근 {surge.get('recent_count')}건 / 기준 {surge.get('baseline_count')}건 / ratio={surge.get('ratio')})."
+    # ---------------------------------------------------------------
+    # ad_hoc_investigation: investigate_ad_hoc() -> run_investigation_loop() 결과.
+    # 2026-07-14: 결과 shape이 완전히 바뀌었다.
+    #   구: {status, decision_reason, support_count, summary:{base_count,recent_surge}, evidence_samples}
+    #   신: {overall_status, final_hypothesis:{hypothesis,query_executed,query_result,
+    #        is_retained,status,decision_reason}, full_log:[...]}
+    # ---------------------------------------------------------------
+    if kind == "ad_hoc_investigation" and isinstance(result, dict):
+        overall = result.get("overall_status")
+        final = result.get("final_hypothesis") or {}
+        full_log = result.get("full_log") or []
+
+        if overall == "HOLD" and not final:
+            return (
+                f"{scope} 기준으로 조사했지만, {result.get('decision_reason', '근거가 부족해 판단을 보류했습니다.')} "
+                "차종·증상을 조금 더 구체적으로 알려주시면 다시 조사해볼게요."
             )
-        if samples:
-            cite_bits = []
-            for s in samples[:3]:
-                cite_bits.append(f"ODINO {s.get('odino')}: {s.get('evidence_snippet', '')[:120]}")
-            lines.append("근거 원문 후보: " + " | ".join(cite_bits))
+
+        lines = [
+            f"{scope} 기준으로 조사했습니다. (가설 {len(full_log)}개 검토, 최종 상태: {overall})",
+            f"가설: {final.get('hypothesis', '(가설 없음)')}",
+        ]
+        if final.get("decision_reason"):
+            lines.append(f"판단 근거: {final['decision_reason']}")
+
+        # query_executed/query_result에 실제 조사 로그가 남아있으면 몇 줄만 요약해서 보여준다.
+        query_executed = final.get("query_executed") or []
+        if query_executed:
+            lines.append(f"조사 단계: {' → '.join(query_executed[:4])}" + (" …" if len(query_executed) > 4 else ""))
+
+        is_retained = final.get("is_retained")
+        if is_retained is True:
+            lines.append("결론: 가설이 데이터로 뒷받침됨(RETAINED).")
+        elif is_retained is False:
+            lines.append("결론: 가설이 데이터로 뒷받침되지 않음(REJECTED) — 다른 원인을 볼 필요가 있습니다.")
+        else:
+            lines.append("결론: 근거가 애매해 확정하지 않고 보류(HOLD)했습니다.")
+
         lines.append("단, 이는 NHTSA 소비자 신고 기반 시그널 후보이며 결함 또는 리콜 확정이 아닙니다.")
         return "\n".join(lines)
 
-    if investigation.get("kind") == "status_query" and isinstance(result, dict):
+    # ---------------------------------------------------------------
+    # status_query: STA defect_signals 조회 — INV 변경과 무관, 기존 그대로.
+    # ---------------------------------------------------------------
+    if kind == "status_query" and isinstance(result, dict):
         if result.get("status") != "OK":
             return f"상태 추적 DB 조회가 어렵습니다. 사유: {result.get('reason')}"
         rows = result.get("rows", [])
@@ -570,15 +915,14 @@ def compose_answer_text(parsed: dict[str, Any], investigation: dict[str, Any], r
             "재발·증가 상태를 우선 검토 대상으로 봅니다."
         )
 
-    if isinstance(result, pd.DataFrame):
-        return (
-            f"{scope} 기준으로 {len(result)}행의 조회 결과를 반환합니다. "
-            "상위 20행만 data에 담았습니다. 미검증 소비자 신고 데이터 기준입니다."
-        )
-
-    if isinstance(result, dict):
-        # 일반 쿼리 템플릿 dict 결과용: 안전 플래그, 급증 결과 등을 짧게 설명한다.
-        if {"total_count", "fire_count", "crash_count"}.issubset(result.keys()):
+    # ---------------------------------------------------------------
+    # local_query: safety_flag_summary(원본 CSV 직접 집계) / evidence_samples(자체 필터)
+    # ---------------------------------------------------------------
+    if kind == "local_query" and isinstance(result, dict):
+        template = investigation.get("template")
+        if template == "safety_flag_summary":
+            if result.get("status") not in {"ok", "OK"}:
+                return f"위험 플래그 요약을 계산하지 못했습니다. 사유: {result.get('reason')}"
             return (
                 f"{scope} 기준 위험 플래그 요약입니다. 전체 {result.get('total_count', 0)}건 중 "
                 f"화재 {result.get('fire_count', 0)}건({result.get('fire_pct', 0)}%), "
@@ -586,14 +930,101 @@ def compose_answer_text(parsed: dict[str, Any], investigation: dict[str, Any], r
                 f"부상 {result.get('injured_count', 0)}건, 사망 {result.get('deaths_count', 0)}건입니다. "
                 "미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
             )
-        if {"recent_count", "baseline_count", "surge_level"}.issubset(result.keys()):
+        if template == "evidence_samples":
+            if result.get("status") != "ok":
+                return f"{scope} 조건의 원문 근거를 찾지 못했습니다."
+            samples = result.get("samples", [])
+            cite_bits = [f"ODINO {s.get('odino')}: {str(s.get('evidence_quote', ''))[:120]}" for s in samples[:3]]
             return (
-                f"{scope} 기준 최근 급증 조회 결과입니다. {result.get('recent_window')} 최근 "
-                f"{result.get('recent_count')}건, 기준 구간 {result.get('baseline_window')} "
-                f"{result.get('baseline_count')}건, ratio={result.get('ratio')}, "
-                f"판정={result.get('surge_level')}입니다. 결함 확정이 아니라 조사 우선순위 신호입니다."
+                f"{scope} 조건의 원문 근거 {result.get('count', 0)}건 중 일부입니다.\n"
+                + " | ".join(cite_bits)
+                + "\n단, 이는 소비자 신고 원문 발췌이며 결함 확정이 아닙니다."
             )
         return f"{scope} 기준 조회 결과입니다. 미검증 소비자 신고 데이터 기준이며 결함 확정이 아닙니다."
+
+    # ---------------------------------------------------------------
+    # query_template: 새 INV-01 TOOL_REGISTRY 함수들의 결과.
+    # sliced가 있으면(사용자가 특정 차종·연식을 물었을 때) 그걸 우선 강조하고,
+    # 없으면 전체 분포를 요약한다.
+    # ---------------------------------------------------------------
+    if isinstance(result, dict):
+        sliced = investigation.get("sliced")
+        template = investigation.get("template")
+        defaulted = investigation.get("part_category_defaulted")
+        used_category = investigation.get("part_category_used")
+        default_note = (
+            f" (부품 카테고리를 지정하지 않아 기본값 {used_category} 기준으로 좁혀 조회했습니다.)"
+            if defaulted else ""
+        )
+
+        if result.get("status") not in {"ok", "OK"}:
+            return f"{scope} 조건의 데이터를 찾지 못했습니다.{default_note}"
+
+        core_text: str
+        if sliced is not None and "year" in sliced:
+            core_text = (
+                f"{scope} 조건에서 {sliced['model']} {sliced['year']}년식은 {sliced['count']}건입니다 "
+                f"(전체 {result.get('total_reports', '?')}건 중). 미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
+            )
+        elif sliced is not None and "model" in sliced and "years" in sliced:
+            years_txt = ", ".join(f"{y}년식 {c}건" for y, c in sliced["years"].items())
+            core_text = (
+                f"{scope} 조건에서 {sliced['model']}은 총 {sliced['count']}건입니다 ({years_txt}). "
+                "미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
+            )
+        elif sliced is not None and "model" in sliced:
+            core_text = (
+                f"{scope} 조건에서 {sliced['model']}은 {sliced['count']}건입니다 "
+                f"(전체 {result.get('total_reports', '?')}건 중). 미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
+            )
+        elif template == "get_model_year_breakdown":
+            top = result.get("top_combo", {})
+            core_text = (
+                f"{scope} 기준 차종×연식 분포입니다. 전체 {result.get('total_reports', 0)}건 중 "
+                f"가장 집중된 조합은 {top.get('model')} {top.get('model_year')}년식으로 "
+                f"{top.get('count', 0)}건({top.get('share_pct', 0)}%)입니다. "
+                "미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
+            )
+        elif template == "get_year_distribution":
+            counts = result.get("year_counts", {})
+            top_year = max(counts, key=counts.get) if counts else None
+            core_text = (
+                f"{scope} 기준 연식별 분포입니다. 전체 {result.get('total_reports', 0)}건, "
+                + (f"가장 많은 연식은 {top_year}년식({counts.get(top_year, 0)}건)입니다. " if top_year else "")
+                + "미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
+            )
+        elif template == "get_model_distribution":
+            counts = result.get("model_counts", {})
+            top_model = max(counts, key=counts.get) if counts else None
+            core_text = (
+                f"{scope} 기준 차종별 분포입니다. 전체 {result.get('total_reports', 0)}건, "
+                + (f"가장 많은 차종은 {top_model}({counts.get(top_model, 0)}건)입니다. " if top_model else "")
+                + "미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
+            )
+        elif template == "get_monthly_trend":
+            counts = result.get("monthly_counts", {})
+            core_text = (
+                f"{scope} 기준 최근 월별 추이입니다(총 {result.get('total_reports', 0)}건). "
+                f"월별 건수: {counts}. 미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
+            )
+        elif template == "get_symptom_distribution":
+            counts = result.get("symptom_counts", {})
+            top_symptom = max(counts, key=counts.get) if counts else None
+            core_text = (
+                f"{scope} 기준 증상 분포입니다. 전체 {result.get('total_reports', 0)}건, "
+                + (f"가장 흔한 증상은 '{top_symptom}'({counts.get(top_symptom, 0)}건)입니다. " if top_symptom else "")
+                + "미검증 소비자 신고 기준이며 결함 확정이 아닙니다."
+            )
+        else:
+            core_text = f"{scope} 기준 조회 결과입니다. 미검증 소비자 신고 데이터 기준이며 결함 확정이 아닙니다."
+
+        return core_text + default_note
+
+    if isinstance(result, pd.DataFrame):
+        return (
+            f"{scope} 기준으로 {len(result)}행의 조회 결과를 반환합니다. "
+            "상위 20행만 data에 담았습니다. 미검증 소비자 신고 데이터 기준입니다."
+        )
 
     return "조회 결과입니다."
 
@@ -646,8 +1077,10 @@ def chat(
     session_history: list[dict[str, Any]] | None = None,
     *,
     csv_path: str | Path | None = None,
+    jsonl_path: str | Path | None = None,
     db_path: str | Path | None = None,
     slot_state: dict[str, Any] | None = None,
+    llm_call: Callable[..., dict] = _stub_llm_call,
 ) -> dict[str, Any]:
     """
     CHT-01 단일 진입점.
@@ -661,6 +1094,14 @@ def chat(
 
     STR-05가 아직 연동 안 된 환경(extract_slots_safe가 None 반환)에서는 이 슬롯
     단계를 건너뛰고 기존 단일턴 정규식 경로로 동작한다 — 동작이 끊기지 않는다.
+
+    jsonl_path: 2026-07-14 신규. 새 INV-01(load_enriched_df)이 원본 CSV와 STR
+    구조화 JSONL을 조인해서 쓰기 때문에 CHT-01도 이제 이 경로가 필요하다.
+    기본값은 query_templates.STRUCT_JSONL_PATH.
+
+    llm_call: investigate_ad_hoc()(조사 루프)이 내부적으로 호출할 LLM 콜백.
+    팀 공용 API 래퍼가 준비되면 이 인자로 실제 함수를 넘기면 되고, 그 전까지는
+    기본값(_stub_llm_call, 결정론적 임시 동작)으로 데모가 계속 돌아간다.
     """
     # 이미 진행 중인 슬롯 대화(slot_state 있음)는 이번 발화의 의도가 뭐로 보이든
     # 끝까지 이어가야 한다("투싼이요" 한마디만으로는 의도를 제대로 못 읽는다).
@@ -684,9 +1125,9 @@ def chat(
         return result
 
     # 여기 도달 = slots가 None(STR-05 미연동, 기존 정규식 경로) 이거나 슬롯이 완료된 상태.
-    parsed = parse_question(question, csv_path=csv_path, slots=slots)
+    parsed = parse_question(question, csv_path=csv_path, jsonl_path=jsonl_path, slots=slots)
     plan = structure_query(parsed)
-    investigation = run_investigation(plan, csv_path=csv_path, db_path=db_path)
+    investigation = run_investigation(plan, csv_path=csv_path, jsonl_path=jsonl_path, db_path=db_path, llm_call=llm_call)
     review_result = review(parsed, investigation)
     answer = format_answer(question, parsed, plan, investigation, review_result)
     answer["turn_status"] = "OK"
@@ -714,6 +1155,10 @@ def chat(
 
 
 if __name__ == "__main__":
+    # 실제 팀 데이터 경로(query_templates.RAW_CSV_PATH/STRUCT_JSONL_PATH,
+    # sta01_02_status_tracking.DEFAULT_DB_PATH) 기준 스모크 테스트.
+    # llm_call은 명시 안 하면 _stub_llm_call(결정론적 임시 동작)이 자동 사용된다 —
+    # 실제 LLM 붙일 때는 chat(..., llm_call=real_llm_call)로 넘기면 됨.
     history: list[dict[str, Any]] = []
     tests = [
         "2025년식 투싼 계기판 꺼짐 최근 6개월 시그널 있어?",
@@ -721,6 +1166,7 @@ if __name__ == "__main__":
         "현대 부품 라벨 상위 알려줘",
         "화재나 충돌 플래그 요약해줘",
         "리콜 후 재발 상태 추적 기록 보여줘",
+        "투싼 차종별 연식별 조합 알려줘",
     ]
     for q in tests:
         ans = chat(q, history)
