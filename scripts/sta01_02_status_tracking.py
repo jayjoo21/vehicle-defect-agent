@@ -1,468 +1,870 @@
 """
-STA-01 / STA-02  상태 추적 DB
-─────────────────────────────────────────────────────────────────
-목적: LLM 분석 결과(JSONL)의 각 ODINO에 대해
-     NHTSA 리콜 API를 조회하여 결함 신규 여부를 판정하고
-     SQLite에 추적 기록을 유지한다.
+MOBISCOPE STA-01 / STA-02 — 결함 상태 추적 SQLite DB
+============================================================
+목적
+- LLM 구조화 결과와 원본 불만 CSV를 SQLite에 적재한다.
+- 특정 ODINO/차종/부품 시그널이 신규(STA-01)인지,
+  기존 리콜 후 재발(STA-02)인지 추적한다.
+- 대시보드가 조회하기 쉬운 view CSV도 내보낸다.
 
-  STA-01 (신규 결함)        — 해당 차종·부품 리콜 이력 없음
-  STA-02 (기존 리콜 후 재발) — 매핑 리콜 존재
+담당 기능
+- STA-01: 리콜 이력이 없는 신규 결함 후보 기록
+- STA-02: 기존 리콜과 동일/유사 부품에서 리콜일 이후 재발 신고 기록
 
-입력:
-  data/processed/llm_struct_test_results.jsonl
-  data/processed/hk_electrical_recent_full.csv
-  NHTSA 리콜 API (키 불필요)
-    https://api.nhtsa.gov/recalls/recallsByVehicle?make={}&model={}&modelYear={}
-출력:
-  data/processed/defect_status_tracking.db   (SQLite)
-  data/processed/defect_status_view.csv      (뷰 CSV, utf-8-sig)
-
-⚠️ 리콜 날짜 ReportReceivedDate: DD/MM/YYYY
-   → pd.to_datetime(..., dayfirst=True) → ISO(YYYY-MM-DD) 변환 필수
-   불만 날짜 FAILDATE: YYYYMMDD — 반드시 ISO 통일 후 비교
-⚠️ 같은 캠페인이 여러 차종에 중복 → NHTSACampaignNumber 기준 dedupe
-⚠️ ODINO 중복 존재 가능 → dedupe_by_key()로 제거 후 인덱싱 (2025-XX-XX 수정)
-⚠️ VIN 노출 금지 / "결함 확정" 표현 금지
-⚠️ 레이(Ray) 등 미국 미판매 차종 API 미조회 → "한국 단독 리콜" 표시
+주의
+- 이 모듈은 SQLite 수준의 상태 DB 뼈대다. 외부 API 호출은 기본 동작에 넣지 않았다.
+- NHTSA/국내 리콜 데이터는 register_recall() 또는 import_recall_records()로 넣는다.
+- VIN은 저장하지 않는다.
+- 저장되는 내용은 미검증 소비자 신고와 분석 결과이며 결함 확정이 아니다.
 """
-import json, sqlite3, time
-import pandas as pd
-import requests
+from __future__ import annotations
+
 from pathlib import Path
+from typing import Any
 from datetime import datetime
+import json
+import sqlite3
 
-JSONL_PATH   = "C:/Users/HYWOMAN/Desktop/AICPP_Work/llm_struct_v2_18cases.jsonl"
-CSV_PATH     = "C:/Users/HYWOMAN/Desktop/AICPP_Work/hk_electrical_recent_full.csv"
-DB_PATH      = "C:/Users/HYWOMAN/Desktop/AICPP_Work/defect_status_tracking.db"
-OUT_CSV      = "C:/Users/HYWOMAN/Desktop/AICPP_Work/defect_status_view.csv"
-RECALL_API   = "https://api.nhtsa.gov/recalls/recallsByVehicle"
+import pandas as pd
 
-STA_NEW    = "STA-01"   # 신규 결함
-STA_RECUR  = "STA-02"   # 기존 리콜 후 재발
-
-# part_category → NHTSA Component 포함 키워드
-COMP_MAP = {
-    "ELECTRICAL_SYSTEM": "ELECTRICAL",
-    "ADAS":              "ELECTRONIC STABILITY",
-    "POWERTRAIN_SW":     "ENGINE",
-    "NON_ELECTRICAL":    "",   # 범위 광범위 → 매핑 불가
-    "INSUFFICIENT_INFO": "",
+DEFAULT_CSV_PATH = Path("data/processed/hk_electrical_recent_full.csv")
+DEFAULT_JSONL_PATH = Path("data/processed/llm_struct_test_results.jsonl")
+DEFAULT_DB_PATH = Path("data/processed/defect_status_tracking.db")
+DEFAULT_VIEW_CSV = Path("data/processed/defect_status_view.csv")
+FALLBACKS = {
+    "csv": [Path("/mnt/data/hk_electrical_recent_full.csv"), Path("hk_electrical_recent_full.csv")],
+    "jsonl": [Path("/mnt/data/llm_struct_test_results.jsonl"), Path("/mnt/data/llm_struct_v2_18cases.jsonl"), Path("llm_struct_v2_18cases.jsonl")],
+    "db": [Path("/mnt/data/defect_status_tracking_generated.db")],
+    "view": [Path("/mnt/data/defect_status_view_generated.csv")],
 }
 
-# 미국 미판매 (한국 단독 리콜) 모델 예시 — 필요 시 추가
-KR_ONLY_MODELS = {"RAY", "MORNING", "STARIA", "CASPER"}
+STA_NEW = "STA-01"
+STA_RECUR = "STA-02"
+STA_LABEL = {
+    STA_NEW: "신규 결함 후보",
+    STA_RECUR: "기존 리콜 후 재발 후보",
+}
+VALID_RESOLUTION = {"OPEN", "IN_PROGRESS", "MONITORING", "RESOLVED", "DISMISSED"}
+SEVERITY_RANK = {"CRITICAL": 4, "SERIOUS": 3, "MODERATE": 2, "MINOR": 1, "UNKNOWN": 0, None: 0}
+
+# --- 차종×부품카테고리 단위 5단계 시그널 상태 -------------------------------
+# defect_status_tracking(위 STA-01/02)은 "신고 1건"이 단위인 이진 판정이고,
+# 그 의미는 바뀌지 않는다. 아래 SIGNAL_*은 그 위에 얹는 별도 집계 레이어
+# (defect_signals 테이블)로, "이 차종 × 이 부품 카테고리" 그룹 전체의
+# 생애주기를 5단계로 추적한다. 실제 판정 로직은 sta_signal_state.py.
+SIGNAL_NEW = "NEW"
+SIGNAL_RISING = "RISING"
+SIGNAL_RECALLED = "RECALLED"
+SIGNAL_DORMANT = "DORMANT"
+SIGNAL_RECURRING = "RECURRING"
+SIGNAL_STATES = (SIGNAL_NEW, SIGNAL_RISING, SIGNAL_RECALLED, SIGNAL_DORMANT, SIGNAL_RECURRING)
+SIGNAL_LABEL_KO = {
+    SIGNAL_NEW: "신규",
+    SIGNAL_RISING: "증가",
+    SIGNAL_RECALLED: "리콜",
+    SIGNAL_DORMANT: "잠잠",
+    SIGNAL_RECURRING: "재발",
+}
+# 대시보드/채팅 답변에서 우선 검토해야 할 순서(위험도 아님, 관심순).
+SIGNAL_PRIORITY_ORDER = {
+    SIGNAL_RECURRING: 1, SIGNAL_RISING: 2, SIGNAL_RECALLED: 3, SIGNAL_NEW: 4, SIGNAL_DORMANT: 5,
+}
+
+PART_RECALL_KEYWORDS = {
+    "ELECTRICAL_SYSTEM": ["ELECTRICAL", "BATTERY", "WIRING", "INSTRUMENT", "CLUSTER", "DISPLAY", "SOFTWARE"],
+    "ADAS": ["LANE", "COLLISION", "CAMERA", "RADAR", "SENSOR", "ELECTRONIC STABILITY", "FORWARD"],
+    "POWERTRAIN_SW": ["ENGINE", "POWER TRAIN", "THROTTLE", "ECM", "ECU", "SOFTWARE", "FUEL"],
+    # 아래 3종은 STR-04 v3 스키마(8종) 확정 시 추가됨(2026-07-13). 기존 3종만 있으면
+    # 이 3개 카테고리는 _component_matches()가 항상 False를 반환해 리콜 매칭이
+    # 전혀 안 되는 조용한 누락이 생긴다 — INV-01의 PART_CATEGORY_KEYWORDS에도
+    # 동일한 갭이 있으나 그 파일은 STA 담당 범위가 아니라 별도로 전달함.
+    "INSTRUMENT_CLUSTER": ["INSTRUMENT", "CLUSTER", "DASH", "DISPLAY", "SPEEDOMETER", "GAUGE"],
+    "PROPULSION_BATTERY": ["BATTERY", "PROPULSION", "HIGH VOLTAGE", "HV BATTERY", "EV BATTERY", "ICCU", "CHARGING"],
+    "BRAKES_ELECTRONIC": ["BRAKE", "BRAKES", "ABS", "ELECTRONIC STABILITY", "ESC"],
+    "NON_ELECTRICAL": [],
+    "INSUFFICIENT_INFO": [],
+}
 
 
-# ═══════════════════════════════════════════════════════
-# 1. DB 초기화 (4 테이블)
-# ═══════════════════════════════════════════════════════
-def init_db(db_path: str = DB_PATH) -> sqlite3.Connection:
-    """DB 파일 생성 + 스키마 초기화 (멱등)."""
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+def _resolve(path: str | Path | None, default: Path, fallbacks: list[Path], *, create_parent: bool = False) -> Path:
+    if path is not None:
+        p = Path(path)
+        if p.exists() or create_parent:
+            if create_parent:
+                p.parent.mkdir(parents=True, exist_ok=True)
+            return p
+        if str(p) != str(default):
+            raise FileNotFoundError(f"파일을 찾을 수 없습니다: {p}")
+    if default.exists() or create_parent:
+        if create_parent:
+            default.parent.mkdir(parents=True, exist_ok=True)
+        return default
+    for fb in fallbacks:
+        if fb.exists() or create_parent:
+            if create_parent:
+                fb.parent.mkdir(parents=True, exist_ok=True)
+            return fb
+    raise FileNotFoundError(f"파일을 찾을 수 없습니다: {default}")
+
+
+def get_conn(db_path: str | Path | None = None) -> sqlite3.Connection:
+    db = _resolve(db_path, DEFAULT_DB_PATH, FALLBACKS["db"], create_parent=True)
+    conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
-    conn.executescript("""
-    PRAGMA foreign_keys = ON;
-
-    CREATE TABLE IF NOT EXISTS vehicles (
-        vehicle_id  INTEGER PRIMARY KEY AUTOINCREMENT,
-        make        TEXT NOT NULL,
-        model       TEXT NOT NULL,
-        year        INTEGER,
-        kr_only     INTEGER DEFAULT 0,  -- 1=한국 단독 리콜 차종
-        UNIQUE(make, model, year)
-    );
-
-    -- NHTSA 리콜 API 응답 캐시
-    -- ReportReceivedDate(DD/MM/YYYY) → report_date_iso(YYYY-MM-DD) 변환 저장
-    CREATE TABLE IF NOT EXISTS recall_records (
-        recall_id        INTEGER PRIMARY KEY AUTOINCREMENT,
-        vehicle_id       INTEGER NOT NULL REFERENCES vehicles(vehicle_id),
-        campaign_no      TEXT,                -- NHTSACampaignNumber (dedupe 기준)
-        report_date_iso  TEXT,               -- ISO YYYY-MM-DD
-        component        TEXT,
-        summary           TEXT,
-        ota_update        INTEGER DEFAULT 0,  -- overTheAirUpdate Y/N
-        fetched_at        TEXT DEFAULT (datetime('now','localtime')),
-        UNIQUE(vehicle_id, campaign_no)      -- 캠페인 중복 방지
-    );
-    CREATE INDEX IF NOT EXISTS idx_rec_vid  ON recall_records(vehicle_id);
-    CREATE INDEX IF NOT EXISTS idx_rec_comp ON recall_records(component);
-
-    -- STA-01/02 판정 메인 테이블
-    CREATE TABLE IF NOT EXISTS defect_status_tracking (
-        tracking_id       INTEGER PRIMARY KEY AUTOINCREMENT,
-        odino             TEXT NOT NULL UNIQUE,
-        vehicle_id        INTEGER REFERENCES vehicles(vehicle_id),
-        recall_id         INTEGER REFERENCES recall_records(recall_id),
-        status_code       TEXT NOT NULL CHECK(status_code IN ('STA-01','STA-02')),
-        part_category     TEXT,
-        severity          TEXT,
-        detection_date    TEXT,              -- FAILDATE → ISO
-        resolution_status TEXT DEFAULT 'OPEN'
-                          CHECK(resolution_status IN
-                                ('OPEN','IN_PROGRESS','RESOLVED','MONITORING')),
-        resolution_date   TEXT,
-        notes             TEXT,
-        created_at        TEXT DEFAULT (datetime('now','localtime')),
-        updated_at        TEXT DEFAULT (datetime('now','localtime'))
-    );
-    CREATE INDEX IF NOT EXISTS idx_dst_status ON defect_status_tracking(status_code);
-    CREATE INDEX IF NOT EXISTS idx_dst_sev    ON defect_status_tracking(severity);
-
-    -- 상태 변경 이력 (resolution_status, status_code 변경 시 자동 기록)
-    CREATE TABLE IF NOT EXISTS status_change_log (
-        log_id      INTEGER PRIMARY KEY AUTOINCREMENT,
-        tracking_id INTEGER NOT NULL REFERENCES defect_status_tracking(tracking_id),
-        field_name  TEXT NOT NULL,
-        old_value   TEXT,
-        new_value   TEXT,
-        changed_at  TEXT DEFAULT (datetime('now','localtime'))
-    );
-    """)
-    conn.commit()
-    print(f"[DB INIT] {db_path} 준비 완료")
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
-# ═══════════════════════════════════════════════════════
-# 2. 데이터 로더
-# ═══════════════════════════════════════════════════════
-def load_jsonl(path: str) -> list[dict]:
-    records = []
-    with open(path, encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                records.append(json.loads(line))
-    print(f"[LOAD JSONL] {len(records)}건")
-    return records
+def init_db(db_path: str | Path | None = None) -> sqlite3.Connection:
+    conn = get_conn(db_path)
+    conn.executescript(
+        """
+        PRAGMA foreign_keys = ON;
 
+        CREATE TABLE IF NOT EXISTS vehicles (
+            vehicle_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            make         TEXT NOT NULL,
+            model        TEXT NOT NULL,
+            year         INTEGER,
+            created_at   TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(make, model, year)
+        );
+        CREATE INDEX IF NOT EXISTS idx_vehicles_make_model_year ON vehicles(make, model, year);
 
-def dedupe_by_key(df: pd.DataFrame, key: str, keep: str = "first") -> pd.DataFrame:
-    """
-    key 컬럼 기준 중복 행 제거 (재사용 가능한 유틸).
-    - 제거 전 중복 건수와, 중복 행들 간 값이 실제로 다른지(진짜 충돌) 확인 로그 출력.
-    - keep='first' 기본: 첫 등장 행만 유지.
-    """
-    dup_mask  = df.duplicated(subset=key, keep=False)
-    dup_count = df[key].duplicated(keep="first").sum()
+        CREATE TABLE IF NOT EXISTS complaint_reports (
+            odino          TEXT PRIMARY KEY,
+            cmplid         TEXT,
+            vehicle_id     INTEGER REFERENCES vehicles(vehicle_id),
+            fail_date      TEXT,
+            ldate          TEXT,
+            component_desc TEXT,
+            complaint_text TEXT,
+            crash          INTEGER DEFAULT 0,
+            fire           INTEGER DEFAULT 0,
+            injured        INTEGER DEFAULT 0,
+            deaths         INTEGER DEFAULT 0,
+            miles          REAL,
+            state          TEXT,
+            city           TEXT,
+            created_at     TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_reports_vehicle ON complaint_reports(vehicle_id);
+        CREATE INDEX IF NOT EXISTS idx_reports_fail_date ON complaint_reports(fail_date);
+        CREATE INDEX IF NOT EXISTS idx_reports_component ON complaint_reports(component_desc);
 
-    if dup_count > 0:
-        dup_rows = df[dup_mask].sort_values(key)
-        # 같은 key를 가진 행들끼리 나머지 컬럼 값이 실제로 다른지 체크
-        conflicting = (
-            dup_rows.groupby(key)
-            .nunique(dropna=False)
-            .drop(columns=[key], errors="ignore")
-            .gt(1).any(axis=1).sum()
-        )
-        print(f"[DEDUPE] '{key}' 중복 {dup_count}건 발견 "
-              f"(그 중 값이 서로 다른 진짜 충돌 {conflicting}건) → keep='{keep}'로 제거")
+        CREATE TABLE IF NOT EXISTS structured_results (
+            odino             TEXT PRIMARY KEY REFERENCES complaint_reports(odino),
+            part_category     TEXT,
+            symptoms_json     TEXT,
+            severity          TEXT,
+            driving_context   TEXT,
+            evidence_quote    TEXT,
+            insufficient_info INTEGER DEFAULT 0,
+            rule_notes        TEXT,
+            created_at        TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_struct_part ON structured_results(part_category);
+        CREATE INDEX IF NOT EXISTS idx_struct_severity ON structured_results(severity);
 
-    before = len(df)
-    df = df.drop_duplicates(subset=key, keep=keep)
-    print(f"[DEDUPE] {before:,}행 → {len(df):,}행")
-    return df
+        CREATE TABLE IF NOT EXISTS recall_records (
+            recall_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_id      INTEGER NOT NULL REFERENCES vehicles(vehicle_id),
+            campaign_no     TEXT,
+            recall_date     TEXT,
+            component       TEXT,
+            summary         TEXT,
+            source          TEXT DEFAULT 'MANUAL',
+            status          TEXT DEFAULT 'OPEN' CHECK(status IN ('OPEN','CLOSED','PARTIAL','UNKNOWN')),
+            created_at      TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(vehicle_id, campaign_no)
+        );
+        CREATE INDEX IF NOT EXISTS idx_recall_vehicle ON recall_records(vehicle_id);
+        CREATE INDEX IF NOT EXISTS idx_recall_component ON recall_records(component);
+        CREATE INDEX IF NOT EXISTS idx_recall_date ON recall_records(recall_date);
 
+        CREATE TABLE IF NOT EXISTS defect_status_tracking (
+            tracking_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            odino             TEXT NOT NULL UNIQUE REFERENCES complaint_reports(odino),
+            vehicle_id        INTEGER REFERENCES vehicles(vehicle_id),
+            recall_id         INTEGER REFERENCES recall_records(recall_id),
+            status_code       TEXT NOT NULL CHECK(status_code IN ('STA-01','STA-02')),
+            status_label      TEXT NOT NULL,
+            part_category     TEXT,
+            severity          TEXT,
+            detection_date    TEXT,
+            recurrence_basis  TEXT,
+            resolution_status TEXT DEFAULT 'OPEN'
+                              CHECK(resolution_status IN ('OPEN','IN_PROGRESS','MONITORING','RESOLVED','DISMISSED')),
+            resolution_date   TEXT,
+            notes             TEXT,
+            created_at        TEXT DEFAULT (datetime('now','localtime')),
+            updated_at        TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_tracking_status ON defect_status_tracking(status_code);
+        CREATE INDEX IF NOT EXISTS idx_tracking_resolution ON defect_status_tracking(resolution_status);
+        CREATE INDEX IF NOT EXISTS idx_tracking_severity ON defect_status_tracking(severity);
 
-def load_csv_meta(path: str) -> pd.DataFrame:
-    """
-    불만 CSV → ODINO·차량·날짜 메타만 추출.
-    - VIN 즉시 제거
-    - FAILDATE: YYYYMMDD → ISO(YYYY-MM-DD)
-    - ODINO 중복 제거 (set_index 시 유일성 요구되므로 필수)
-    - 처리 완료본이므로 청크 불필요
-    """
-    df = pd.read_csv(path, dtype=str, low_memory=False, encoding="utf-8-sig")
-    df.columns = [c.strip().upper() for c in df.columns]
+        CREATE TABLE IF NOT EXISTS status_change_log (
+            log_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            tracking_id  INTEGER NOT NULL REFERENCES defect_status_tracking(tracking_id),
+            field_name   TEXT NOT NULL,
+            old_value    TEXT,
+            new_value    TEXT,
+            changed_by   TEXT DEFAULT 'SYSTEM',
+            changed_at   TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_log_tracking ON status_change_log(tracking_id);
 
-    if "VIN" in df.columns:
-        df = df.drop(columns=["VIN"])
+        -- 차종×부품카테고리 단위 5단계 시그널(신규/증가/리콜/잠잠/재발).
+        -- defect_status_tracking(신고 단위)과 별개 테이블 — 기존 의미를 안 건드리고
+        -- 그 위에 얹는 집계 레이어. 계산 로직은 sta_signal_state.py.
+        CREATE TABLE IF NOT EXISTS defect_signals (
+            signal_id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_id           INTEGER NOT NULL REFERENCES vehicles(vehicle_id),
+            part_category        TEXT NOT NULL,
+            signal_state         TEXT NOT NULL CHECK(signal_state IN
+                                  ('NEW','RISING','RECALLED','DORMANT','RECURRING')),
+            recall_id            INTEGER REFERENCES recall_records(recall_id),
+            complaint_count      INTEGER NOT NULL DEFAULT 0,
+            first_complaint_date TEXT,
+            last_complaint_date  TEXT,
+            recent_count         INTEGER,
+            baseline_count       INTEGER,
+            surge_ratio          REAL,
+            surge_level          TEXT,
+            quiet_months         REAL,
+            state_reason         TEXT,
+            computed_at          TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(vehicle_id, part_category)
+        );
+        CREATE INDEX IF NOT EXISTS idx_signals_state ON defect_signals(signal_state);
+        CREATE INDEX IF NOT EXISTS idx_signals_vehicle ON defect_signals(vehicle_id);
 
-    keep = ["ODINO", "MAKETXT", "MODELTXT", "YEARTXT", "FAILDATE"]
-    df = df[[c for c in keep if c in df.columns]].copy()
-
-    # FAILDATE: YYYYMMDD → ISO
-    if "FAILDATE" in df.columns:
-        dt = pd.to_datetime(df["FAILDATE"], format="%Y%m%d", errors="coerce")
-        df["FAILDATE"] = dt.dt.strftime("%Y-%m-%d")
-
-    # 검증 출력
-    print(f"[LOAD CSV META] 행={len(df):,}  열={len(df.columns)}")
-    print(f"  FAILDATE 범위: {df['FAILDATE'].min()} ~ {df['FAILDATE'].max()}")
-    null_pct = {c: f"{df[c].isnull().mean()*100:.1f}%"
-                for c in df.columns if df[c].isnull().mean() > 0}
-    print(f"  널비율: {null_pct}")
-
-    # ODINO 중복 제거 (set_index("ODINO").to_dict("index") 대비)
-    df = dedupe_by_key(df, key="ODINO")
-
-    return df
-
-
-# ═══════════════════════════════════════════════════════
-# 3. NHTSA 리콜 API 조회
-# ═══════════════════════════════════════════════════════
-def fetch_recalls(make: str, model: str, year, sleep_sec: float = 0.3) -> list[dict]:
-    """
-    NHTSA 리콜 API 1건 호출.
-    ⚠️ ReportReceivedDate: DD/MM/YYYY → dayfirst=True → ISO
-    API 실패 시 빈 리스트 반환 (전체 중단 금지).
-    """
-    params = {"make": make, "model": model, "modelYear": year}
-    try:
-        resp = requests.get(RECALL_API, params=params, timeout=10)
-        resp.raise_for_status()
-        items = resp.json().get("results", [])
-        for item in items:
-            raw = item.get("ReportReceivedDate", "")
-            try:
-                item["report_date_iso"] = (
-                    pd.to_datetime(raw, dayfirst=True).strftime("%Y-%m-%d")
-                )
-            except Exception:
-                item["report_date_iso"] = None
-        time.sleep(sleep_sec)
-        return items
-    except Exception as e:
-        print(f"  [API WARN] {make}/{model}/{year}: {e}")
-        return []
-
-
-# ═══════════════════════════════════════════════════════
-# 4. 차량 마스터 + 리콜 적재
-# ═══════════════════════════════════════════════════════
-def upsert_vehicle(conn, make: str, model: str, year) -> int:
-    row = conn.execute(
-        "SELECT vehicle_id FROM vehicles WHERE make=? AND model=? AND year=?",
-        (make, model, year)
-    ).fetchone()
-    if row:
-        return row["vehicle_id"]
-    kr_only = 1 if model.upper() in KR_ONLY_MODELS else 0
-    cur = conn.execute(
-        "INSERT INTO vehicles(make, model, year, kr_only) VALUES(?,?,?,?)",
-        (make, model, year, kr_only)
+        CREATE TABLE IF NOT EXISTS signal_state_log (
+            log_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_id    INTEGER NOT NULL REFERENCES defect_signals(signal_id),
+            old_state    TEXT,
+            new_state    TEXT NOT NULL,
+            reason       TEXT,
+            changed_at   TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_signal_log_signal ON signal_state_log(signal_id);
+        """
     )
     conn.commit()
-    return cur.lastrowid
-
-
-def insert_recalls(conn, vehicle_id: int, recalls: list[dict]):
-    """
-    API 응답 → recall_records 적재.
-    NHTSACampaignNumber 기준 dedupe (UNIQUE 제약).
-    """
-    for r in recalls:
-        ota = 1 if str(r.get("overTheAirUpdate","")).strip().upper() == "Y" else 0
-        try:
-            conn.execute("""
-                INSERT OR IGNORE INTO recall_records
-                (vehicle_id, campaign_no, report_date_iso, component, summary, ota_update)
-                VALUES(?,?,?,?,?,?)
-            """, (vehicle_id,
-                  r.get("NHTSACampaignNumber",""),
-                  r.get("report_date_iso"),
-                  r.get("Component",""),
-                  r.get("Summary",""),
-                  ota))
-        except sqlite3.Error:
-            pass
+    _ensure_column(conn, "recall_records", "part_number", "TEXT")
+    _ensure_column(conn, "recall_records", "part_family", "TEXT")
     conn.commit()
+    return conn
 
 
-# ═══════════════════════════════════════════════════════
-# 5. STA-01 / STA-02 판정
-# ═══════════════════════════════════════════════════════
-def _find_recall(conn, vehicle_id: int, part_category: str):
-    """
-    vehicle_id + part_category 키워드로 매핑 리콜 조회.
-    반환: recall_id(int) 또는 None → STA-01
-    """
-    keyword = COMP_MAP.get(part_category, "")
-    if not keyword:
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: str) -> None:
+    """이미 만들어져 있던 DB 파일에도 안전하게 컬럼을 추가한다(재실행해도 에러 없음).
+    ALTER TABLE ADD COLUMN은 SQLite에서 기존 행을 안 건드리고 NULL로 채우는
+    비파괴적 작업이라, 운영 중인 DB에 실행해도 안전하다."""
+    cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
+
+
+def _date_to_iso(value: Any, *, dayfirst: bool = False) -> str | None:
+    if value is None or pd.isna(value):
         return None
-    row = conn.execute("""
-        SELECT recall_id FROM recall_records
-        WHERE vehicle_id = ?
-          AND UPPER(component) LIKE ?
-        ORDER BY report_date_iso DESC LIMIT 1
-    """, (vehicle_id, f"%{keyword}%")).fetchone()
-    return row["recall_id"] if row else None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) == 8 and text.isdigit():
+        dt = pd.to_datetime(text, format="%Y%m%d", errors="coerce")
+    else:
+        dt = pd.to_datetime(text, dayfirst=dayfirst, errors="coerce")
+    if pd.isna(dt):
+        return None
+    return dt.strftime("%Y-%m-%d")
 
 
-def classify_and_record(conn, odino: str, vehicle_id,
-                        part_category: str, severity: str,
-                        detection_date: str) -> str:
+def _safe_int(value: Any, default: int = 0) -> int:
+    try:
+        if value is None or pd.isna(value):
+            return default
+        return int(float(value))
+    except Exception:
+        return default
+
+
+def _safe_float(value: Any) -> float | None:
+    try:
+        if value is None or pd.isna(value):
+            return None
+        return float(value)
+    except Exception:
+        return None
+
+
+def upsert_vehicle(conn: sqlite3.Connection, make: str, model: str, year: int | str | None) -> int:
+    make = str(make or "UNKNOWN").strip().upper()
+    model = str(model or "UNKNOWN").strip().upper()
+    year_int = _safe_int(year, default=None) if year not in (None, "") else None
+    row = conn.execute(
+        "SELECT vehicle_id FROM vehicles WHERE make=? AND model=? AND year IS ?",
+        (make, model, year_int),
+    ).fetchone()
+    # SQLite의 IS ?가 환경에 따라 어색할 수 있어 보조 조회.
+    if not row:
+        row = conn.execute(
+            "SELECT vehicle_id FROM vehicles WHERE make=? AND model=? AND COALESCE(year,-1)=COALESCE(?,-1)",
+            (make, model, year_int),
+        ).fetchone()
+    if row:
+        return int(row["vehicle_id"])
+    cur = conn.execute("INSERT INTO vehicles(make, model, year) VALUES(?,?,?)", (make, model, year_int))
+    conn.commit()
+    return int(cur.lastrowid)
+
+
+def load_complaints_csv(conn: sqlite3.Connection, csv_path: str | Path | None = None) -> int:
+    csv = _resolve(csv_path, DEFAULT_CSV_PATH, FALLBACKS["csv"])
+    df = pd.read_csv(csv, dtype=str, low_memory=False, encoding="utf-8-sig")
+    df.columns = [str(c).strip().upper() for c in df.columns]
+    if "VIN" in df.columns:
+        df = df.drop(columns=["VIN"])
+    before = len(df)
+    if "ODINO" in df.columns:
+        df = df.drop_duplicates(subset="ODINO", keep="first")
+
+    inserted = updated = 0
+    for _, row in df.iterrows():
+        odino = str(row.get("ODINO") or "").strip()
+        if not odino:
+            continue
+        vid = upsert_vehicle(conn, row.get("MAKETXT"), row.get("MODELTXT"), row.get("YEARTXT"))
+        payload = (
+            odino,
+            str(row.get("CMPLID") or "").strip() or None,
+            vid,
+            _date_to_iso(row.get("FAILDATE")),
+            _date_to_iso(row.get("LDATE")),
+            str(row.get("COMPDESC") or "").strip() or None,
+            str(row.get("CDESCR") or "").strip() or None,
+            1 if str(row.get("CRASH") or "").strip().upper() == "Y" else 0,
+            1 if str(row.get("FIRE") or "").strip().upper() == "Y" else 0,
+            _safe_int(row.get("INJURED")),
+            _safe_int(row.get("DEATHS")),
+            _safe_float(row.get("MILES")),
+            str(row.get("STATE") or "").strip() or None,
+            str(row.get("CITY") or "").strip() or None,
+        )
+        exists = conn.execute("SELECT 1 FROM complaint_reports WHERE odino=?", (odino,)).fetchone()
+        conn.execute(
+            """
+            INSERT INTO complaint_reports
+            (odino, cmplid, vehicle_id, fail_date, ldate, component_desc, complaint_text,
+             crash, fire, injured, deaths, miles, state, city)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(odino) DO UPDATE SET
+                cmplid=excluded.cmplid,
+                vehicle_id=excluded.vehicle_id,
+                fail_date=excluded.fail_date,
+                ldate=excluded.ldate,
+                component_desc=excluded.component_desc,
+                complaint_text=excluded.complaint_text,
+                crash=excluded.crash,
+                fire=excluded.fire,
+                injured=excluded.injured,
+                deaths=excluded.deaths,
+                miles=excluded.miles,
+                state=excluded.state,
+                city=excluded.city
+            """,
+            payload,
+        )
+        inserted += 0 if exists else 1
+        updated += 1 if exists else 0
+    conn.commit()
+    print(f"[STA LOAD CSV] source_rows={before:,} unique_odino={len(df):,} inserted={inserted:,} updated={updated:,}")
+    return inserted + updated
+
+
+def load_structured_jsonl(conn: sqlite3.Connection, jsonl_path: str | Path | None = None) -> int:
+    path = _resolve(jsonl_path, DEFAULT_JSONL_PATH, FALLBACKS["jsonl"])
+    count = 0
+    with open(path, encoding="utf-8") as f:
+        for line_no, line in enumerate(f, start=1):
+            line = line.strip()
+            if not line:
+                continue
+            rec = json.loads(line)
+            odino = str(rec.get("odino") or "").strip()
+            if not odino:
+                continue
+            # 원본 CSV에 없는 ODINO도 구조화는 저장 가능하게 최소 complaint row 생성.
+            if not conn.execute("SELECT 1 FROM complaint_reports WHERE odino=?", (odino,)).fetchone():
+                conn.execute("INSERT OR IGNORE INTO complaint_reports(odino) VALUES(?)", (odino,))
+            conn.execute(
+                """
+                INSERT INTO structured_results
+                (odino, part_category, symptoms_json, severity, driving_context,
+                 evidence_quote, insufficient_info, rule_notes)
+                VALUES(?,?,?,?,?,?,?,?)
+                ON CONFLICT(odino) DO UPDATE SET
+                    part_category=excluded.part_category,
+                    symptoms_json=excluded.symptoms_json,
+                    severity=excluded.severity,
+                    driving_context=excluded.driving_context,
+                    evidence_quote=excluded.evidence_quote,
+                    insufficient_info=excluded.insufficient_info,
+                    rule_notes=excluded.rule_notes
+                """,
+                (
+                    odino,
+                    rec.get("part_category"),
+                    json.dumps(rec.get("symptoms") or [], ensure_ascii=False),
+                    rec.get("severity"),
+                    rec.get("driving_context"),
+                    rec.get("evidence_quote"),
+                    1 if rec.get("insufficient_info") else 0,
+                    rec.get("v2_rule_notes") or rec.get("rule_notes"),
+                ),
+            )
+            count += 1
+    conn.commit()
+    print(f"[STA LOAD JSONL] records={count:,} path={path}")
+    return count
+
+
+def register_recall(
+    conn: sqlite3.Connection,
+    *,
+    make: str,
+    model: str,
+    year: int | str | None,
+    campaign_no: str,
+    recall_date: str | None,
+    component: str,
+    summary: str = "",
+    source: str = "MANUAL",
+    status: str = "OPEN",
+    part_number: str | None = None,
+    part_family: str | None = None,
+) -> int:
+    """리콜 이력 수동/외부 적재. STA-02 판정 및 defect_signals 판정의 기준 데이터가 된다.
+
+    part_number/part_family는 RCL573 파이프라인(sta_recall_loader.py)에서만 채워지는
+    선택 필드다. recall_date는 None/빈 문자열이어도 안전하게 NULL로 저장된다 — RCL573
+    산출물에 리콜일이 없는 경우가 있어(sta_recall_loader.py 문서 참고) 필수값으로 두지
+    않았다.
     """
-    ODINO 1건 STA-01/02 판정 + DB 기록.
-    이미 존재하면 UPDATE + 변경 로그.
-    반환: status_code
+    vid = upsert_vehicle(conn, make, model, year)
+    iso_date = _date_to_iso(recall_date, dayfirst=True) if recall_date else None
+    cur = conn.execute(
+        """
+        INSERT INTO recall_records(vehicle_id, campaign_no, recall_date, component, summary, source, status,
+                                    part_number, part_family)
+        VALUES(?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(vehicle_id, campaign_no) DO UPDATE SET
+            recall_date=COALESCE(excluded.recall_date, recall_records.recall_date),
+            component=excluded.component,
+            summary=excluded.summary,
+            source=excluded.source,
+            status=excluded.status,
+            part_number=COALESCE(excluded.part_number, recall_records.part_number),
+            part_family=COALESCE(excluded.part_family, recall_records.part_family)
+        """,
+        (vid, campaign_no, iso_date, component, summary, source, status, part_number, part_family),
+    )
+    conn.commit()
+    row = conn.execute(
+        "SELECT recall_id FROM recall_records WHERE vehicle_id=? AND campaign_no=?", (vid, campaign_no)
+    ).fetchone()
+    return int(row["recall_id"] if row else cur.lastrowid)
+
+
+def import_recall_records(conn: sqlite3.Connection, recall_csv_path: str | Path) -> int:
     """
-    recall_id   = _find_recall(conn, vehicle_id, part_category) if vehicle_id else None
+    선택 기능: 별도 리콜 CSV를 가져온다.
+    필요한 컬럼: make, model, year, campaign_no, recall_date, component
+    선택 컬럼: summary, source, status
+    """
+    df = pd.read_csv(recall_csv_path, dtype=str, encoding="utf-8-sig")
+    df.columns = [c.strip().lower() for c in df.columns]
+    required = {"make", "model", "year", "campaign_no", "recall_date", "component"}
+    missing = required - set(df.columns)
+    if missing:
+        raise ValueError(f"리콜 CSV 필수 컬럼 누락: {sorted(missing)}")
+    n = 0
+    for _, row in df.iterrows():
+        register_recall(
+            conn,
+            make=row.get("make"),
+            model=row.get("model"),
+            year=row.get("year"),
+            campaign_no=row.get("campaign_no"),
+            recall_date=row.get("recall_date"),
+            component=row.get("component"),
+            summary=row.get("summary", ""),
+            source=row.get("source", "CSV"),
+            status=row.get("status", "OPEN") or "OPEN",
+        )
+        n += 1
+    print(f"[STA LOAD RECALL] records={n:,}")
+    return n
+
+
+def _component_matches(part_category: str | None, component_text: str | None) -> bool:
+    if not part_category or not component_text:
+        return False
+    keywords = PART_RECALL_KEYWORDS.get(str(part_category).upper(), [])
+    if not keywords:
+        return False
+    comp = component_text.upper()
+    return any(k.upper() in comp for k in keywords)
+
+
+def find_matching_recall(
+    conn: sqlite3.Connection,
+    vehicle_id: int | None,
+    part_category: str | None,
+    detection_date: str | None,
+) -> tuple[int | None, str]:
+    """
+    같은 차량 + 유사 부품 리콜이 있고, 리콜일이 신고일 이전이면 STA-02 후보로 본다.
+    날짜가 없으면 같은 차량+부품 리콜 존재만으로 후보를 연결하되 basis에 날짜 불명 표시.
+    """
+    if not vehicle_id or not part_category:
+        return None, "vehicle_id 또는 part_category 없음"
+    rows = conn.execute(
+        "SELECT * FROM recall_records WHERE vehicle_id=? ORDER BY recall_date DESC", (vehicle_id,)
+    ).fetchall()
+    for r in rows:
+        if not _component_matches(part_category, r["component"]):
+            continue
+        recall_date = r["recall_date"]
+        if detection_date and recall_date:
+            if recall_date <= detection_date:
+                return int(r["recall_id"]), f"동일 차량·유사 부품 리콜({r['campaign_no']}, {recall_date}) 이후 신고"
+            # 리콜이 신고 뒤에 있으면 '재발'이 아니라 당시에는 신규 시그널로 둔다.
+            continue
+        return int(r["recall_id"]), f"동일 차량·유사 부품 리콜({r['campaign_no']}) 존재, 날짜 비교 불완전"
+    return None, "동일 차량·유사 부품의 과거 리콜 이력 없음"
+
+
+def find_all_matching_recalls(
+    conn: sqlite3.Connection,
+    vehicle_id: int | None,
+    part_category: str | None,
+) -> tuple[int | None, str, str | None]:
+    """
+    find_matching_recall()과의 차이: 그건 "신고 1건이 리콜 이후 재발인가"(날짜 선후 필수)를
+    묻고, 이건 "이 차종×부품카테고리에 리콜이 존재하는가"(날짜 무관)만 묻는다.
+    defect_signals 시그널 판정(sta_signal_state.py)에 쓰인다.
+
+    반환: (recall_id 또는 None, 판정 근거 설명, recall_date 또는 None)
+    recall_date가 있는 레코드를 우선하고, 그중 최신순으로 첫 매치를 반환한다.
+    """
+    if not vehicle_id or not part_category:
+        return None, "vehicle_id 또는 part_category 없음", None
+    rows = conn.execute(
+        "SELECT * FROM recall_records WHERE vehicle_id=? "
+        "ORDER BY (recall_date IS NULL) ASC, recall_date DESC",
+        (vehicle_id,),
+    ).fetchall()
+    for r in rows:
+        if _component_matches(part_category, r["component"]):
+            return (
+                int(r["recall_id"]),
+                f"리콜({r['campaign_no']}) 매칭: {r['component']}",
+                r["recall_date"],
+            )
+    return None, "동일 차량·유사 부품의 리콜 이력 없음", None
+
+
+def classify_and_track(conn: sqlite3.Connection, odino: str, *, notes: str | None = None) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT
+            cr.odino, cr.vehicle_id, cr.fail_date,
+            sr.part_category, sr.severity, sr.insufficient_info
+        FROM complaint_reports cr
+        LEFT JOIN structured_results sr ON cr.odino = sr.odino
+        WHERE cr.odino=?
+        """,
+        (str(odino),),
+    ).fetchone()
+    if not row:
+        raise ValueError(f"ODINO {odino} 원본 신고 없음")
+
+    recall_id, basis = find_matching_recall(
+        conn,
+        row["vehicle_id"],
+        row["part_category"],
+        row["fail_date"],
+    )
     status_code = STA_RECUR if recall_id else STA_NEW
-    now         = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    status_label = STA_LABEL[status_code]
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     existing = conn.execute(
-        "SELECT tracking_id, status_code FROM defect_status_tracking WHERE odino=?",
-        (odino,)
+        "SELECT tracking_id, status_code, resolution_status FROM defect_status_tracking WHERE odino=?",
+        (odino,),
     ).fetchone()
 
     if existing:
-        tid, old_code = existing["tracking_id"], existing["status_code"]
-        conn.execute("""
+        tid = int(existing["tracking_id"])
+        old_code = existing["status_code"]
+        conn.execute(
+            """
             UPDATE defect_status_tracking
-            SET status_code=?, recall_id=?, severity=?, updated_at=?
+            SET vehicle_id=?, recall_id=?, status_code=?, status_label=?, part_category=?, severity=?,
+                detection_date=?, recurrence_basis=?, notes=COALESCE(?, notes), updated_at=?
             WHERE tracking_id=?
-        """, (status_code, recall_id, severity, now, tid))
+            """,
+            (
+                row["vehicle_id"], recall_id, status_code, status_label, row["part_category"], row["severity"],
+                row["fail_date"], basis, notes, now, tid,
+            ),
+        )
         if old_code != status_code:
-            conn.execute("""
-                INSERT INTO status_change_log(tracking_id, field_name, old_value, new_value)
-                VALUES(?,?,?,?)
-            """, (tid, "status_code", old_code, status_code))
+            conn.execute(
+                "INSERT INTO status_change_log(tracking_id, field_name, old_value, new_value) VALUES(?,?,?,?)",
+                (tid, "status_code", old_code, status_code),
+            )
+        action = "UPDATE"
     else:
-        conn.execute("""
+        cur = conn.execute(
+            """
             INSERT INTO defect_status_tracking
-            (odino, vehicle_id, recall_id, status_code,
-             part_category, severity, detection_date)
-            VALUES(?,?,?,?,?,?,?)
-        """, (odino, vehicle_id, recall_id, status_code,
-              part_category, severity, detection_date))
-
+            (odino, vehicle_id, recall_id, status_code, status_label, part_category, severity,
+             detection_date, recurrence_basis, notes)
+            VALUES(?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                odino, row["vehicle_id"], recall_id, status_code, status_label, row["part_category"], row["severity"],
+                row["fail_date"], basis, notes,
+            ),
+        )
+        tid = int(cur.lastrowid)
+        action = "INSERT"
     conn.commit()
-    return status_code
+    return {
+        "tracking_id": tid,
+        "odino": odino,
+        "status_code": status_code,
+        "status_label": status_label,
+        "part_category": row["part_category"],
+        "severity": row["severity"],
+        "recall_id": recall_id,
+        "recurrence_basis": basis,
+        "action": action,
+    }
 
 
-# ═══════════════════════════════════════════════════════
-# 6. 해소 상태 갱신
-# ═══════════════════════════════════════════════════════
-VALID_RESOLUTION = {"OPEN", "IN_PROGRESS", "RESOLVED", "MONITORING"}
+def classify_all(conn: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = conn.execute("SELECT odino FROM structured_results ORDER BY odino").fetchall()
+    results: list[dict[str, Any]] = []
+    for r in rows:
+        try:
+            results.append(classify_and_track(conn, r["odino"]))
+        except Exception as e:
+            print(f"[STA CLASSIFY WARN] ODINO={r['odino']} {e}")
+    counts = pd.Series([x["status_code"] for x in results]).value_counts().to_dict() if results else {}
+    print(f"[STA CLASSIFY] total={len(results):,} counts={counts}")
+    return results
 
-def update_resolution(conn, odino: str, resolution_status: str,
-                      resolution_date: str = None, notes: str = None):
-    """
-    resolution_status 갱신 + 변경 로그 기록.
-    """
-    if resolution_status not in VALID_RESOLUTION:
-        raise ValueError(f"resolution_status must be one of {VALID_RESOLUTION}")
+
+def update_resolution(
+    conn: sqlite3.Connection,
+    odino: str,
+    resolution_status: str,
+    *,
+    resolution_date: str | None = None,
+    notes: str | None = None,
+    changed_by: str = "SYSTEM",
+) -> None:
+    status = str(resolution_status).upper()
+    if status not in VALID_RESOLUTION:
+        raise ValueError(f"resolution_status는 {sorted(VALID_RESOLUTION)} 중 하나여야 합니다.")
     row = conn.execute(
-        "SELECT tracking_id, resolution_status FROM defect_status_tracking WHERE odino=?",
-        (odino,)
+        "SELECT tracking_id, resolution_status FROM defect_status_tracking WHERE odino=?", (odino,)
     ).fetchone()
     if not row:
-        raise ValueError(f"ODINO {odino} 없음")
-    old_val = row["resolution_status"]
-    now     = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    conn.execute("""
+        raise ValueError(f"ODINO {odino} 추적 레코드 없음")
+    old = row["resolution_status"]
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    conn.execute(
+        """
         UPDATE defect_status_tracking
-        SET resolution_status=?,
-            resolution_date=COALESCE(?, resolution_date),
-            notes=COALESCE(?, notes),
-            updated_at=?
+        SET resolution_status=?, resolution_date=COALESCE(?, resolution_date),
+            notes=COALESCE(?, notes), updated_at=?
         WHERE odino=?
-    """, (resolution_status, resolution_date, notes, now, odino))
-    conn.execute("""
-        INSERT INTO status_change_log(tracking_id, field_name, old_value, new_value)
-        VALUES(?,?,?,?)
-    """, (row["tracking_id"], "resolution_status", old_val, resolution_status))
-    conn.commit()
-    print(f"[UPDATE] {odino}: {old_val} → {resolution_status}")
-
-
-# ═══════════════════════════════════════════════════════
-# 7. 전체 실행
-# ═══════════════════════════════════════════════════════
-
-
-def run(jsonl_path=JSONL_PATH, csv_path=CSV_PATH, db_path=DB_PATH) -> sqlite3.Connection:
-    conn     = init_db(db_path)
-    llm_recs = load_jsonl(jsonl_path)
-    meta_df  = load_csv_meta(csv_path)
-    meta_idx = meta_df.set_index("ODINO").to_dict("index")  # O(1) 룩업
-
-    print(f"\n[CLASSIFY START] {len(llm_recs)}건 ─────────────────────────────")
-    for rec in llm_recs:
-        odino    = str(rec["odino"])
-        m        = meta_idx.get(odino, {})
-        make     = str(m.get("MAKETXT","")).strip().upper() or None
-        model    = str(m.get("MODELTXT","")).strip().upper() or None
-        yr_raw   = m.get("YEARTXT","")
-        year     = int(yr_raw) if str(yr_raw).isdigit() else None
-        fail_iso = m.get("FAILDATE", None)
-
-        vid = None
-        if make and model and year:
-            vid = upsert_vehicle(conn, make, model, year)
-            # 리콜 API: 처음 등록 차량만 조회 (kr_only 차종 제외)
-            kr_only = conn.execute(
-                "SELECT kr_only FROM vehicles WHERE vehicle_id=?", (vid,)
-            ).fetchone()["kr_only"]
-            existing_cnt = conn.execute(
-                "SELECT COUNT(*) FROM recall_records WHERE vehicle_id=?", (vid,)
-            ).fetchone()[0]
-            if not kr_only and existing_cnt == 0:
-                recalls = fetch_recalls(make, model, year)
-                insert_recalls(conn, vid, recalls)
-                print(f"  [API] {make}/{model}/{year} → 리콜 {len(recalls)}건 적재")
-
-        code = classify_and_record(
-            conn, odino, vid,
-            rec.get("part_category",""),
-            rec.get("severity",""),
-            fail_iso
+        """,
+        (status, _date_to_iso(resolution_date) if resolution_date else None, notes, now, odino),
+    )
+    if old != status:
+        conn.execute(
+            """
+            INSERT INTO status_change_log(tracking_id, field_name, old_value, new_value, changed_by)
+            VALUES(?,?,?,?,?)
+            """,
+            (row["tracking_id"], "resolution_status", old, status, changed_by),
         )
-        print(f"  {odino} → {code}  ({rec.get('part_category')}, {rec.get('severity')})")
-
-    # 검증 출력
-    n01  = conn.execute("SELECT COUNT(*) FROM defect_status_tracking WHERE status_code='STA-01'").fetchone()[0]
-    n02  = conn.execute("SELECT COUNT(*) FROM defect_status_tracking WHERE status_code='STA-02'").fetchone()[0]
-    nrec = conn.execute("SELECT COUNT(*) FROM recall_records").fetchone()[0]
-    nveh = conn.execute("SELECT COUNT(*) FROM vehicles").fetchone()[0]
-    print(f"\n[DB 검증] STA-01={n01}  STA-02={n02}  recall_records={nrec}  vehicles={nveh}")
-    return conn
+    conn.commit()
 
 
-# ═══════════════════════════════════════════════════════
-# 8. 뷰 CSV 내보내기
-# ═══════════════════════════════════════════════════════
-def export_view_csv(conn, out_path: str = OUT_CSV):
-    """추적 결과 + 차량 + 리콜 조인 뷰 → CSV 저장."""
-    df = pd.read_sql_query("""
+def query_status_summary(conn: sqlite3.Connection) -> pd.DataFrame:
+    return pd.read_sql_query(
+        """
         SELECT
+            dst.tracking_id,
             dst.odino,
             v.make, v.model, v.year,
-            CASE v.kr_only WHEN 1 THEN '한국 단독 리콜' ELSE '미국 조회' END AS recall_scope,
             dst.status_code,
+            dst.status_label,
             dst.part_category,
             dst.severity,
             dst.detection_date,
+            dst.recurrence_basis,
             dst.resolution_status,
-            dst.resolution_date,
             r.campaign_no,
-            r.report_date_iso   AS recall_date,
-            r.component         AS recall_component,
-            CASE r.ota_update WHEN 1 THEN 'Y' ELSE 'N' END AS ota_update,
-            dst.notes,
-            dst.created_at
+            r.recall_date,
+            r.component AS recall_component,
+            dst.updated_at
         FROM defect_status_tracking dst
-        LEFT JOIN vehicles v       ON dst.vehicle_id = v.vehicle_id
-        LEFT JOIN recall_records r ON dst.recall_id  = r.recall_id
+        LEFT JOIN vehicles v ON dst.vehicle_id = v.vehicle_id
+        LEFT JOIN recall_records r ON dst.recall_id = r.recall_id
         ORDER BY
-            CASE dst.severity
-                WHEN 'CRITICAL' THEN 1 WHEN 'SERIOUS' THEN 2
-                WHEN 'MODERATE' THEN 3 WHEN 'MINOR'   THEN 4 ELSE 5
+            CASE dst.status_code WHEN 'STA-02' THEN 1 ELSE 2 END,
+            CASE dst.severity WHEN 'CRITICAL' THEN 1 WHEN 'SERIOUS' THEN 2 WHEN 'MODERATE' THEN 3 WHEN 'MINOR' THEN 4 ELSE 5 END,
+            dst.detection_date DESC
+        """,
+        conn,
+    )
+
+
+def export_status_view(conn: sqlite3.Connection, out_path: str | Path | None = None) -> Path:
+    out = _resolve(out_path, DEFAULT_VIEW_CSV, FALLBACKS["view"], create_parent=True)
+    df = query_status_summary(conn)
+    df.to_csv(out, index=False, encoding="utf-8-sig")
+    print(f"[STA EXPORT] path={out} rows={len(df):,}")
+    return out
+
+
+def upsert_signal_state(conn: sqlite3.Connection, signal: dict[str, Any]) -> dict[str, Any]:
+    """
+    sta_signal_state.py가 계산한 판정 결과 dict 하나를 defect_signals에 INSERT/UPDATE하고,
+    상태가 바뀐 경우에만 signal_state_log에 이력을 남긴다.
+
+    이 함수는 순수 저장 담당이다 — "무엇이 신규/증가/리콜/잠잠/재발인지" 판단하는
+    로직은 여기 없다(sta_signal_state.compute_signal_state가 담당). 스키마를 아는
+    코드는 이 파일 하나로 모아 SQL이 여러 파일에 흩어지지 않게 했다.
+
+    signal 필수 키: vehicle_id, part_category, signal_state, state_reason
+    선택 키(없으면 None/0으로 저장): recall_id, complaint_count, first_complaint_date,
+    last_complaint_date, recent_count, baseline_count, surge_ratio, surge_level, quiet_months
+    """
+    if signal["signal_state"] not in SIGNAL_STATES:
+        raise ValueError(f"알 수 없는 signal_state: {signal['signal_state']!r} (허용: {SIGNAL_STATES})")
+
+    existing = conn.execute(
+        "SELECT signal_id, signal_state FROM defect_signals WHERE vehicle_id=? AND part_category=?",
+        (signal["vehicle_id"], signal["part_category"]),
+    ).fetchone()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    g = lambda k, default=None: signal.get(k, default)
+
+    if existing:
+        sid = int(existing["signal_id"])
+        old_state = existing["signal_state"]
+        conn.execute(
+            """
+            UPDATE defect_signals SET
+                signal_state=?, recall_id=?, complaint_count=?, first_complaint_date=?,
+                last_complaint_date=?, recent_count=?, baseline_count=?, surge_ratio=?,
+                surge_level=?, quiet_months=?, state_reason=?, computed_at=?
+            WHERE signal_id=?
+            """,
+            (signal["signal_state"], g("recall_id"), g("complaint_count", 0), g("first_complaint_date"),
+             g("last_complaint_date"), g("recent_count"), g("baseline_count"), g("surge_ratio"),
+             g("surge_level"), g("quiet_months"), signal["state_reason"], now, sid),
+        )
+        if old_state != signal["signal_state"]:
+            conn.execute(
+                "INSERT INTO signal_state_log(signal_id, old_state, new_state, reason) VALUES(?,?,?,?)",
+                (sid, old_state, signal["signal_state"], signal["state_reason"]),
+            )
+    else:
+        cur = conn.execute(
+            """
+            INSERT INTO defect_signals(
+                vehicle_id, part_category, signal_state, recall_id, complaint_count,
+                first_complaint_date, last_complaint_date, recent_count, baseline_count,
+                surge_ratio, surge_level, quiet_months, state_reason
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (signal["vehicle_id"], signal["part_category"], signal["signal_state"], g("recall_id"),
+             g("complaint_count", 0), g("first_complaint_date"), g("last_complaint_date"), g("recent_count"),
+             g("baseline_count"), g("surge_ratio"), g("surge_level"), g("quiet_months"), signal["state_reason"]),
+        )
+        sid = int(cur.lastrowid)
+        conn.execute(
+            "INSERT INTO signal_state_log(signal_id, old_state, new_state, reason) VALUES(?,?,?,?)",
+            (sid, None, signal["signal_state"], signal["state_reason"]),
+        )
+    conn.commit()
+    out = dict(signal)
+    out["signal_id"] = sid
+    return out
+
+
+def query_signal_summary(conn: sqlite3.Connection) -> pd.DataFrame:
+    """defect_signals를 차량/리콜 정보와 조인해 대시보드·CHT-01이 바로 쓰기 좋은 형태로 반환."""
+    return pd.read_sql_query(
+        """
+        SELECT
+            ds.signal_id, v.make, v.model, v.year,
+            ds.part_category, ds.signal_state, ds.complaint_count,
+            ds.first_complaint_date, ds.last_complaint_date,
+            ds.recent_count, ds.baseline_count, ds.surge_ratio, ds.surge_level,
+            ds.quiet_months, ds.state_reason,
+            r.campaign_no, r.recall_date, r.source AS recall_source,
+            ds.computed_at
+        FROM defect_signals ds
+        LEFT JOIN vehicles v ON ds.vehicle_id = v.vehicle_id
+        LEFT JOIN recall_records r ON ds.recall_id = r.recall_id
+        ORDER BY
+            CASE ds.signal_state
+                WHEN 'RECURRING' THEN 1 WHEN 'RISING' THEN 2 WHEN 'RECALLED' THEN 3
+                WHEN 'NEW' THEN 4 WHEN 'DORMANT' THEN 5 ELSE 6
             END,
-            dst.status_code
-    """, conn)
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_path, index=False, encoding="utf-8-sig")
-    # 검증 출력
-    print(f"[EXPORT] {out_path}  행={len(df)}  열={len(df.columns)}")
-    conn.close()
+            ds.last_complaint_date DESC
+        """,
+        conn,
+    )
 
 
-# ── 메인 실행 ─────────────────────────────────────────────────────
+def export_signal_view(conn: sqlite3.Connection, out_path: str | Path | None = None) -> Path:
+    default = DEFAULT_VIEW_CSV.parent / "defect_signal_view.csv"
+    out = _resolve(out_path, default, [p.parent / "defect_signal_view_generated.csv" for p in FALLBACKS["view"]], create_parent=True)
+    df = query_signal_summary(conn)
+    df.to_csv(out, index=False, encoding="utf-8-sig")
+    print(f"[STA EXPORT] path={out} rows={len(df):,}")
+    return out
+
+
+def run_status_tracking(
+    *,
+    csv_path: str | Path | None = None,
+    jsonl_path: str | Path | None = None,
+    db_path: str | Path | None = None,
+    out_csv: str | Path | None = None,
+) -> sqlite3.Connection:
+    conn = init_db(db_path)
+    load_complaints_csv(conn, csv_path)
+    load_structured_jsonl(conn, jsonl_path)
+    classify_all(conn)
+    export_status_view(conn, out_csv)
+    return conn
+
+
 if __name__ == "__main__":
-    conn = run()
-    export_view_csv(conn)
+    conn0 = run_status_tracking()
+    print(query_status_summary(conn0).head(20).to_string(index=False))
+    conn0.close()
