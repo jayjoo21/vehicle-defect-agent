@@ -5,7 +5,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from routers import chat, reports, signals, vehicles
+from routers import chat, parts, reports, signals, vehicles
 
 app = FastAPI(title="MOBISCOPE API")
 
@@ -24,6 +24,7 @@ app.include_router(signals.router, prefix="/api")
 app.include_router(vehicles.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(parts.router, prefix="/api")
 
 
 @app.get("/api/health")

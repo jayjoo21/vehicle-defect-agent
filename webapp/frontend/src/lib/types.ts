@@ -188,13 +188,17 @@ export interface ChatQuote {
   summary_ko: string | null
 }
 
-export interface ChatPart {
-  campaign: string
+export interface ChatPartLine {
   component_name: string | null
   part_number: string | null
   supplier_canonical: string | null
+}
+
+export interface ChatPart {
+  campaign: string
   defect_cause: string | null
   pdf_url: string | null
+  parts: ChatPartLine[]
 }
 
 export interface ChatStructured {
@@ -210,4 +214,17 @@ export interface ChatAnswer {
   structured: ChatStructured | null
   sources: ChatSource[]
   report_id: number | null
+}
+
+export interface RelatedPartItem {
+  model: string
+  campaign: string
+  part_number: string
+}
+
+export interface RelatedPartsResponse {
+  part_number: string
+  part_family: string
+  supplier_group: string | null
+  shared: RelatedPartItem[]
 }

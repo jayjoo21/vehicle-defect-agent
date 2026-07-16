@@ -23,7 +23,7 @@ export default function DomainDetailCard({ domain, model }: { domain: VehicleDom
     <div className="card p-6">
       <div className="mb-3 flex items-center justify-between">
         <h3 className="text-lg font-semibold" style={{ color: 'var(--color-ink)' }}>
-          {domain.domain}
+          {label}
         </h3>
         <span className="rounded-full px-2 py-0.5 text-[12px] font-medium" style={{ color, backgroundColor: `${color}1A` }}>
           {stateLabel[domain.state]}

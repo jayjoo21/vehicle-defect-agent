@@ -1,5 +1,6 @@
 import type {
   GapResponse,
+  RelatedPartsResponse,
   Report,
   SignalDetail,
   SignalsResponse,
@@ -32,4 +33,5 @@ export const api = {
   gap: () => request<GapResponse>('/gap'),
   heatmap: () => request<HeatmapResponse>('/heatmap'),
   report: (id: number) => request<Report>(`/reports/${id}`),
+  relatedParts: (partNumber: string) => request<RelatedPartsResponse>(`/parts/${encodeURIComponent(partNumber)}/related`),
 }

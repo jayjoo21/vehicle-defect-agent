@@ -30,7 +30,10 @@ export default function ChatAnswerCard({ question, answer }: { question: string;
   const s = answer.structured
   // sources(odino/campaign)에 실린 실제 부품·캠페인 정보로부터 그래프를 구성 — 근거가 없으면
   // 빈 그래프를 반환하고 SemanticNetworkGraph가 자체 더미 데이터로 대체한다.
-  const graph = useMemo(() => buildSemanticGraph(question, answer.sources), [question, answer.sources])
+  const graph = useMemo(
+    () => buildSemanticGraph(question, answer.sources, answer.structured?.parts ?? []),
+    [question, answer.sources, answer.structured],
+  )
 
   if (!s) {
     return (
@@ -131,28 +134,43 @@ export default function ChatAnswerCard({ question, answer }: { question: string;
           </button>
           {partsOpen && (
             <ul className="mt-2 flex flex-col gap-3">
-              {s.parts.map((p, i) => (
-                <li key={i} className="text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <Badge text={p.campaign} />
-                    {p.component_name && <Badge text={p.component_name} />}
-                    {p.part_number && <Badge text={p.part_number} />}
-                    {p.supplier_canonical && (
-                      <span className="text-[11px]" style={{ color: 'var(--color-navy)' }}>
-                        공급사: {p.supplier_canonical}
-                      </span>
+              {s.parts.map((p, i) => {
+                const suppliers = new Set(p.parts.map((line) => line.supplier_canonical).filter(Boolean))
+                const singleSupplier = suppliers.size === 1 ? [...suppliers][0] : null
+                return (
+                  <li key={i} className="text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge text={p.campaign} />
+                      {singleSupplier && (
+                        <span className="text-[11px]" style={{ color: 'var(--color-navy)' }}>
+                          공급사: {singleSupplier}
+                        </span>
+                      )}
+                    </div>
+                    {p.defect_cause && (
+                      <p className="mt-1 rounded p-2 text-[11px] leading-relaxed" style={{ backgroundColor: 'var(--color-bg-subtle)' }}>
+                        &ldquo;{p.defect_cause}&rdquo;
+                      </p>
                     )}
-                  </div>
-                  {p.defect_cause && (
-                    <p className="mt-1 rounded p-2 text-[11px] leading-relaxed" style={{ backgroundColor: 'var(--color-bg-subtle)' }}>
-                      &ldquo;{p.defect_cause}&rdquo;
+                    <div className="mt-1.5 flex flex-wrap gap-1.5">
+                      {p.parts.map((line, li) => (
+                        <span key={li} className="inline-flex items-center gap-1">
+                          {line.component_name && <Badge text={line.component_name} />}
+                          {line.part_number && <Badge text={line.part_number} />}
+                          {!singleSupplier && line.supplier_canonical && (
+                            <span className="text-[10px]" style={{ color: 'var(--color-navy)' }}>
+                              ({line.supplier_canonical})
+                            </span>
+                          )}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="mt-1 text-[10px]" style={{ color: 'var(--color-ink-muted)' }}>
+                      출처: NHTSA Part 573 공식 리콜 문서 원문 기준
                     </p>
-                  )}
-                  <p className="mt-1 text-[10px]" style={{ color: 'var(--color-ink-muted)' }}>
-                    출처: NHTSA Part 573 공식 리콜 문서 원문 기준
-                  </p>
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>

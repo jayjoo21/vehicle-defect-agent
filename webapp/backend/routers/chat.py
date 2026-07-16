@@ -82,7 +82,11 @@ def _complaint_source(r) -> dict:
 def _campaign_parts(conn, campaigns: list[str]) -> list[dict]:
     """리콜 캠페인에 매칭된 Part 573 원문 부품 정보(data/processed/
     rcl573_components_normalized.csv 기반, parts 테이블) — 지어낸 값 없음.
-    캠페인에 parts 데이터가 없으면 빈 리스트(placeholder 문구는 프론트에서도 금지)."""
+    캠페인에 parts 데이터가 없으면 빈 리스트(placeholder 문구는 프론트에서도 금지).
+
+    같은 캠페인이 부품번호 변형(예: 36400-1XFA0 / 36400-1XFA0QQK)으로 여러 행에
+    걸쳐 저장돼 있어, campaign 기준으로 묶어 defect_cause·출처를 한 번만 보여주고
+    그 아래 부품번호들을 나열한다(캠페인 내 defect_cause는 항상 동일함을 확인함)."""
     if not campaigns:
         return []
     placeholders = ",".join("?" for _ in campaigns)
@@ -91,17 +95,18 @@ def _campaign_parts(conn, campaigns: list[str]) -> list[dict]:
             FROM parts WHERE campaign IN ({placeholders}) AND component_name IS NOT NULL""",
         campaigns,
     ).fetchall()
-    return [
-        {
-            "campaign": r["campaign"],
-            "component_name": r["component_name"],
-            "part_number": r["part_number"],
-            "supplier_canonical": r["supplier_canonical"],
-            "defect_cause": r["defect_cause"],
-            "pdf_url": r["pdf_url"],
-        }
-        for r in rows
-    ]
+
+    grouped: dict[str, dict] = {}
+    for r in rows:
+        g = grouped.setdefault(
+            r["campaign"],
+            {"campaign": r["campaign"], "defect_cause": r["defect_cause"], "pdf_url": r["pdf_url"], "parts": []},
+        )
+        g["parts"].append(
+            {"component_name": r["component_name"], "part_number": r["part_number"], "supplier_canonical": r["supplier_canonical"]}
+        )
+    # campaigns 순서(리콜 조회 시 이미 report_date 순 정렬됨) 그대로 유지.
+    return [grouped[c] for c in campaigns if c in grouped]
 
 
 def _build_quotes(sources: list[dict]) -> list[dict]:
