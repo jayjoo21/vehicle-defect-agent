@@ -1,5 +1,6 @@
 import { Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
+import RequireAgent from './components/RequireAgent'
 import Dashboard from './pages/Dashboard'
 import Chat from './pages/Chat'
 import MyCar from './pages/MyCar'
@@ -7,6 +8,7 @@ import ReportsHub from './pages/ReportsHub'
 import ReportView from './pages/ReportView'
 import SignalDetail from './pages/SignalDetail'
 import Brand from './pages/Brand'
+import Login from './pages/Login'
 
 function App() {
   return (
@@ -19,6 +21,15 @@ function App() {
         <Route path="/reports/:id" element={<ReportView />} />
         <Route path="/signals/:id" element={<SignalDetail />} />
         <Route path="/brand" element={<Brand />} />
+        <Route path="/login" element={<Login />} />
+        <Route
+          path="/agent-chat"
+          element={
+            <RequireAgent>
+              <Chat role="agent" />
+            </RequireAgent>
+          }
+        />
       </Route>
     </Routes>
   )

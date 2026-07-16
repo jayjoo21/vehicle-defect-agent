@@ -197,6 +197,7 @@ export interface ChatPartLine {
 export interface ChatPart {
   campaign: string
   defect_cause: string | null
+  remedy_type: string | null
   pdf_url: string | null
   parts: ChatPartLine[]
 }
@@ -207,6 +208,9 @@ export interface ChatStructured {
   sections: ChatSection[]
   quotes: ChatQuote[]
   parts: ChatPart[]
+  // role='agent'일 때만 백엔드가 채워 보내는 "고객 안내 요약"용 데이터(parts와 동일 소스,
+  // remedy_type만 추가) — 소비자 채팅에서는 항상 null.
+  agent_summary: ChatPart[] | null
 }
 
 export interface ChatAnswer {

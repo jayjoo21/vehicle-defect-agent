@@ -51,6 +51,8 @@ export default function ChatAnswerCard({ question, answer }: { question: string;
 
   return (
     <div className="card p-6">
+      {s.agent_summary && s.agent_summary.length > 0 && <AgentSummaryBlock groups={s.agent_summary} />}
+
       <p className="text-[16px] font-semibold leading-snug" style={{ color: 'var(--color-navy)' }}>
         {linkifyGlossary(s.headline)}
       </p>
@@ -196,6 +198,53 @@ export default function ChatAnswerCard({ question, answer }: { question: string;
       </p>
 
       <SourceModal open={sourceModal != null} title={sourceModal} onClose={() => setSourceModal(null)} />
+    </div>
+  )
+}
+
+// 상담사 모드(role='agent') 전용 — 통화 중 즉시 읽을 수 있는 요약을 답변 맨 위에 둔다.
+// groups는 백엔드가 parts와 동일 소스(parts 테이블)에서 캠페인 단위로 묶어 보낸 데이터로,
+// 여기서 새 문구를 만들지 않고 defect_cause·remedy_type 원문과 부품 식별 정보만 나열한다.
+function AgentSummaryBlock({ groups }: { groups: NonNullable<ChatAnswer['structured']>['agent_summary'] }) {
+  if (!groups) return null
+  return (
+    <div
+      className="mb-4 rounded-lg border-2 p-4"
+      style={{ borderColor: 'var(--color-navy)', backgroundColor: 'var(--color-navy-soft)' }}
+    >
+      <p className="mb-3 text-[11px] font-bold uppercase tracking-wide" style={{ color: 'var(--color-navy)' }}>
+        고객 안내 요약 (상담사용)
+      </p>
+      <div className="flex flex-col gap-3">
+        {groups.map((g, i) => (
+          <div key={i} className="rounded-md bg-white/70 p-3 text-[13px]" style={{ color: 'var(--color-ink)' }}>
+            <Badge text={g.campaign} />
+            {g.defect_cause && (
+              <p className="mt-1.5 leading-relaxed">
+                <span className="font-semibold">결함원인 </span>
+                {g.defect_cause}
+              </p>
+            )}
+            {g.remedy_type && (
+              <p className="mt-1.5 leading-relaxed">
+                <span className="font-semibold">시정 방식 </span>
+                {g.remedy_type}
+              </p>
+            )}
+            {g.parts.length > 0 && (
+              <p className="mt-1.5 text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
+                <span className="font-semibold">대상 부품 </span>
+                {g.parts
+                  .map((line) => [line.component_name, line.part_number, line.supplier_canonical].filter(Boolean).join(' '))
+                  .join(' / ')}
+              </p>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="mt-3 text-[11px]" style={{ color: 'var(--color-ink-muted)' }}>
+        * 고객에게 안내 시 참고용입니다 — NHTSA 공식 리콜 문서 기준이며, 개별 차량 진단을 대체하지 않습니다.
+      </p>
     </div>
   )
 }

@@ -41,7 +41,7 @@ function updateLastTurn(turns: Turn[], patch: (t: Turn) => Turn): Turn[] {
   return next
 }
 
-export default function Chat() {
+export default function Chat({ role = 'consumer' }: { role?: 'consumer' | 'agent' }) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [input, setInput] = useState(() => searchParams.get('q') ?? '')
   const [turns, setTurns] = useState<Turn[]>([])
@@ -66,12 +66,16 @@ export default function Chat() {
     const next: Turn = { question, steps: [], answer: null, pending: true, error: null }
     setTurns((ts) => [...ts, next])
 
-    await streamChat(question, {
-      onStep: (step) => setTurns((ts) => updateLastTurn(ts, (t) => ({ ...t, steps: [...t.steps, step] }))),
-      onAnswer: (answer) => setTurns((ts) => updateLastTurn(ts, (t) => ({ ...t, answer }))),
-      onDone: () => setTurns((ts) => updateLastTurn(ts, (t) => ({ ...t, pending: false }))),
-      onError: (err) => setTurns((ts) => updateLastTurn(ts, (t) => ({ ...t, pending: false, error: err.message }))),
-    })
+    await streamChat(
+      question,
+      {
+        onStep: (step) => setTurns((ts) => updateLastTurn(ts, (t) => ({ ...t, steps: [...t.steps, step] }))),
+        onAnswer: (answer) => setTurns((ts) => updateLastTurn(ts, (t) => ({ ...t, answer }))),
+        onDone: () => setTurns((ts) => updateLastTurn(ts, (t) => ({ ...t, pending: false }))),
+        onError: (err) => setTurns((ts) => updateLastTurn(ts, (t) => ({ ...t, pending: false, error: err.message }))),
+      },
+      role,
+    )
   }
 
   async function exportPdf() {

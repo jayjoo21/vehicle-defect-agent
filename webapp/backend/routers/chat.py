@@ -86,12 +86,16 @@ def _campaign_parts(conn, campaigns: list[str]) -> list[dict]:
 
     같은 캠페인이 부품번호 변형(예: 36400-1XFA0 / 36400-1XFA0QQK)으로 여러 행에
     걸쳐 저장돼 있어, campaign 기준으로 묶어 defect_cause·출처를 한 번만 보여주고
-    그 아래 부품번호들을 나열한다(캠페인 내 defect_cause는 항상 동일함을 확인함)."""
+    그 아래 부품번호들을 나열한다(캠페인 내 defect_cause는 항상 동일함을 확인함).
+
+    remedy_type(시정 방식 원문)도 defect_cause와 동일하게 캠페인 내 항상 동일함을
+    DB로 확인 후 그룹 레벨에 포함 — 상담사 모드의 "고객 안내 요약" 블록이 이 반환값을
+    그대로 재사용한다(별도 조회·별도 데이터 없음)."""
     if not campaigns:
         return []
     placeholders = ",".join("?" for _ in campaigns)
     rows = conn.execute(
-        f"""SELECT campaign, component_name, part_number, supplier_canonical, defect_cause, pdf_url
+        f"""SELECT campaign, component_name, part_number, supplier_canonical, defect_cause, remedy_type, pdf_url
             FROM parts WHERE campaign IN ({placeholders}) AND component_name IS NOT NULL""",
         campaigns,
     ).fetchall()
@@ -100,7 +104,13 @@ def _campaign_parts(conn, campaigns: list[str]) -> list[dict]:
     for r in rows:
         g = grouped.setdefault(
             r["campaign"],
-            {"campaign": r["campaign"], "defect_cause": r["defect_cause"], "pdf_url": r["pdf_url"], "parts": []},
+            {
+                "campaign": r["campaign"],
+                "defect_cause": r["defect_cause"],
+                "remedy_type": r["remedy_type"],
+                "pdf_url": r["pdf_url"],
+                "parts": [],
+            },
         )
         g["parts"].append(
             {"component_name": r["component_name"], "part_number": r["part_number"], "supplier_canonical": r["supplier_canonical"]}
@@ -155,7 +165,7 @@ def ev6_build_context(recent_count, iccu_campaigns, cluster_rows) -> tuple[dict,
     return context, sources
 
 
-async def _ev6_cluster_flow(conn, llm: LLM):
+async def _ev6_cluster_flow(conn, llm: LLM, role: str = "consumer"):
     t0 = time.perf_counter()
     yield _sse(
         "step",
@@ -218,7 +228,15 @@ async def _ev6_cluster_flow(conn, llm: LLM):
 
     structured = result.get("structured")
     if structured is not None:
-        structured = {**structured, "quotes": _build_quotes(sources), "parts": _campaign_parts(conn, iccu_campaigns)}
+        parts = _campaign_parts(conn, iccu_campaigns)
+        structured = {
+            **structured,
+            "quotes": _build_quotes(sources),
+            "parts": parts,
+            # 상담사 모드(role='agent')일 때만 "고객 안내 요약"용으로 동일 parts 데이터를 다시
+            # 실어 보낸다 — 별도 조회·별도 데이터 없음, role은 표시 여부만 결정한다.
+            "agent_summary": parts if role == "agent" else None,
+        }
     yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": sources, "report_id": report_id})
 
 
@@ -271,7 +289,7 @@ def ioniq5_build_context(recent_rows, iccu_campaigns, iccu_hits) -> tuple[dict, 
     return context, sources
 
 
-async def _ioniq5_charging_flow(conn, llm: LLM):
+async def _ioniq5_charging_flow(conn, llm: LLM, role: str = "consumer"):
     t0 = time.perf_counter()
     yield _sse(
         "step",
@@ -336,7 +354,13 @@ async def _ioniq5_charging_flow(conn, llm: LLM):
 
     structured = result.get("structured")
     if structured is not None:
-        structured = {**structured, "quotes": _build_quotes(sources), "parts": _campaign_parts(conn, iccu_campaigns)}
+        parts = _campaign_parts(conn, iccu_campaigns)
+        structured = {
+            **structured,
+            "quotes": _build_quotes(sources),
+            "parts": parts,
+            "agent_summary": parts if role == "agent" else None,
+        }
     yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": sources, "report_id": report_id})
 
 
@@ -358,19 +382,19 @@ async def _out_of_scope_flow(llm: LLM):
     await asyncio.sleep(0.2)
     structured = result.get("structured")
     if structured is not None:
-        structured = {**structured, "quotes": [], "parts": []}
+        structured = {**structured, "quotes": [], "parts": [], "agent_summary": None}
     yield _sse("answer", {"markdown": result["markdown"], "structured": structured, "sources": [], "report_id": None})
 
 
-async def _stream(message: str, conn):
+async def _stream(message: str, conn, role: str = "consumer"):
     scenario = detect_scenario(message)
     llm = LLM()
 
     if scenario == "ev6_cluster":
-        async for chunk in _ev6_cluster_flow(conn, llm):
+        async for chunk in _ev6_cluster_flow(conn, llm, role):
             yield chunk
     elif scenario == "ioniq5_charging":
-        async for chunk in _ioniq5_charging_flow(conn, llm):
+        async for chunk in _ioniq5_charging_flow(conn, llm, role):
             yield chunk
     else:
         async for chunk in _out_of_scope_flow(llm):
@@ -383,4 +407,10 @@ async def _stream(message: str, conn):
 async def post_chat(request: Request, conn=Depends(get_db)):
     payload = await request.json()
     message = payload.get("message", "")
-    return StreamingResponse(_stream(message, conn), media_type="text/event-stream")
+    # role='agent'는 사내 상담사 화면(webapp/frontend의 목 로그인 스위치)에서만 보낸다 — 조사
+    # 로직·시나리오 매칭에는 전혀 관여하지 않고, 답변 structured에 agent_summary를 실을지만
+    # 결정한다(위 각 flow 참조). 알 수 없는 값은 안전하게 consumer로 취급.
+    role = payload.get("role", "consumer")
+    if role not in ("consumer", "agent"):
+        role = "consumer"
+    return StreamingResponse(_stream(message, conn, role), media_type="text/event-stream")

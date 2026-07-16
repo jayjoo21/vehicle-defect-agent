@@ -22,12 +22,16 @@ function parseEvent(raw: string, handlers: StreamChatHandlers) {
   else if (event === 'done') handlers.onDone()
 }
 
-export async function streamChat(message: string, handlers: StreamChatHandlers): Promise<void> {
+export async function streamChat(
+  message: string,
+  handlers: StreamChatHandlers,
+  role: 'consumer' | 'agent' = 'consumer',
+): Promise<void> {
   try {
     const res = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, role }),
     })
     if (!res.ok || !res.body) {
       throw new Error(`채팅 요청 실패: ${res.status}`)
