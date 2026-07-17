@@ -1,6 +1,6 @@
 # MOBISCOPE — 차량 결함 조사 Agent
 
-NHTSA(미국 도로교통안전국) 소비자 불만 텍스트에서 소프트웨어/전장 결함 시그널을 리콜이 나오기 전에 조기 탐지하는 LLM Agent. 현대·기아 차종을 대상으로, 불만 급증(스파이크) 감지 → 한·미 리콜 시차 분석 → 자연어 조사 채팅까지 3화면 데모로 확인할 수 있다.
+NHTSA(미국 도로교통안전국) 소비자 불만 텍스트에서 소프트웨어/전장 결함 시그널을 리콜이 나오기 전에 조기 탐지하는 LLM Agent. 현대·기아 차종을 대상으로, 불만 급증(스파이크) 감지 → 한·미 리콜 시차 분석 → 자연어 조사 채팅까지 소비자용 3화면 데모로 확인할 수 있다. 동일한 조사 채팅 위에 목(mock) 로그인으로 진입하는 상담사 전용 콘솔(`/agent-chat`)도 있다 — 새 조사 로직 없이 답변에 "고객 안내 요약"(결함원인·시정방식·대상 부품)만 추가로 보여준다.
 
 > 신고는 NHTSA가 명시하듯 미검증 소비자 제보이며, 이 서비스의 어떤 산출물도 "결함 확정"을 의미하지 않는다.
 
@@ -67,16 +67,17 @@ flowchart LR
     USER(["👤 사용자 브라우저"])
 
     subgraph FRONTEND["💻 프론트엔드 — React + Vite + TS (webapp/frontend)"]
-        PAGES["pages/<br/>Dashboard · MyCar · Chat · ReportsHub"]
+        PAGES["pages/<br/>Dashboard · MyCar · Chat · ReportsHub · Login(상담사)"]
+        ROLELIB["lib/role.ts<br/>목 로그인 상태 (localStorage)"]
         APILIB["lib/api.ts"]
-        SSELIB["lib/sse.ts"]
+        SSELIB["lib/sse.ts<br/>POST /api/chat {message, role}"]
     end
 
     subgraph BACKEND["⚙️ 백엔드 — FastAPI (webapp/backend)"]
-        ROUTERS["routers/<br/>signals · vehicles · reports · chat"]
+        ROUTERS["routers/<br/>signals · vehicles · reports · chat · parts"]
         ENGINE["engine/<br/>episode · domains · state"]
         LLM["llm/adapter.py<br/>LLM_PROVIDER=mock (기본값)"]
-        MOCKJSON[("mock_responses/answer/*.json")]
+        MOCKJSON[("mock_responses/{role}/{scenario}.json<br/>consumer · agent")]
         DB[("SQLite<br/>data/app.db")]
     end
 
@@ -90,11 +91,12 @@ flowchart LR
         RECALL_FETCH["리콜 수집 스크립트"]
         KOTSA_PREP["kotsa_prep.py"]
         MOLIT_PARSE["molit_extract.py<br/>molit_parse.py"]
+        RCL573["rcl573_fetch.py<br/>rcl573_parse.py<br/>(Part 573 부품·공급사)"]
         SEED["seed.py / seed_manual.py"]
     end
 
     subgraph DATA["💾 정제 데이터 (data/processed, data/recalls)"]
-        PROCESSED[("data/processed/*.csv")]
+        PROCESSED[("data/processed/*.csv<br/>rcl573_components_normalized.csv 포함")]
         RECALLS[("data/recalls/*.csv")]
     end
 
@@ -103,15 +105,17 @@ flowchart LR
         NHTSA_API(["NHTSA Recalls API"])
         KOTSA_CSV[("KOTSA 리콜대수 CSV")]
         MOLIT_PDF[("국토부 보도자료 PDF")]
+        NHTSA_RCL573[("NHTSA Part 573 리콜 문서<br/>(리콜 벌크 플랫파일 + PDF)")]
     end
 
     %% 사용자 <-> 프론트엔드
     USER -->|"HTTPS"| PAGES
+    PAGES --> ROLELIB
     PAGES --> APILIB
     PAGES --> SSELIB
 
     %% 프론트엔드 <-> 백엔드
-    APILIB -->|"HTTP GET, JSON (REST) /api/summary, /api/signals 등"| ROUTERS
+    APILIB -->|"HTTP GET, JSON (REST) /api/summary, /api/signals, /api/parts/{part_number}/related 등"| ROUTERS
     SSELIB -->|"HTTP POST + SSE 스트리밍 (text/event-stream) /api/chat"| ROUTERS
     FRONTEND -.->|"프로덕션 빌드: dist/ 정적 파일 서빙 (Docker)"| BACKEND
 
@@ -119,7 +123,7 @@ flowchart LR
     ROUTERS -->|"SELECT (SQL)"| DB
     ROUTERS -->|"함수 호출"| ENGINE
     ROUTERS -->|"role='answer' 호출"| LLM
-    LLM -->|"mock 모드: 템플릿 JSON 읽기"| MOCKJSON
+    LLM -->|"mock 모드: role별 템플릿 JSON 읽기"| MOCKJSON
     LLM -.->|"실제 모드(v0 이후): HTTPS REST"| ANTH
     LLM -.->|"실제 모드(v0 이후): HTTPS REST"| OPENAI
 
@@ -128,18 +132,20 @@ flowchart LR
     NHTSA_API -->|"HTTP GET, JSON"| RECALL_FETCH
     KOTSA_CSV -->|"pandas 읽기 (cp949)"| KOTSA_PREP
     MOLIT_PDF -->|"pdfplumber 텍스트 추출"| MOLIT_PARSE
+    NHTSA_RCL573 -->|"플랫파일 필터링 + pdfplumber 파싱"| RCL573
 
     %% 파이프라인 -> 정제 데이터
     PREP -->|"CSV 저장 (utf-8-sig)"| PROCESSED
     RECALL_FETCH -->|"CSV 저장"| RECALLS
     KOTSA_PREP -->|"CSV 저장"| PROCESSED
     MOLIT_PARSE -->|"CSV 저장"| PROCESSED
+    RCL573 -->|"CSV 저장"| PROCESSED
 
     %% 정제 데이터 -> 시딩 -> DB
     PROCESSED -->|"파일 읽기 (pandas)"| SEED
     RECALLS -->|"파일 읽기 (pandas)"| SEED
     SEED -->|"INSERT (SQL, 1회 시딩)"| DB
-
+```
 
 ## 프로젝트 구조
 
@@ -155,7 +161,7 @@ docs/
   screenshots/           이 README의 스크린샷
 scripts/       데이터 수집·정제·baseline 탐지·되감기 평가 스크립트 (Task 1~11)
 webapp/
-  frontend/    Vite + React + TypeScript + Tailwind, 3화면(상황판/조사채팅/내차)
+  frontend/    Vite + React + TypeScript + Tailwind, 소비자 3화면(상황판/조사채팅/내차) + 상담사 콘솔(/login, /agent-chat)
   backend/     FastAPI + SQLite, engine/(탐지·상태 로직) + llm/(어댑터+목응답)
   Dockerfile   멀티스테이지 빌드 (컨텍스트는 저장소 루트)
 ```
