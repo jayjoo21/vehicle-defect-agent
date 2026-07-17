@@ -94,6 +94,18 @@ CREATE TABLE IF NOT EXISTS parts (
     remedy_type TEXT,
     pdf_url TEXT
 );
+
+-- 데모 인증(auth.py의 코드 상수 test 계정) 위에 얹는 차종 구독. account는 로그인 email
+-- 그대로(별도 users 테이블 없음). 재시작 시 사라져도 데모엔 무방 — DB 파일 자체가
+-- gitignore 대상이라 seed.py 재실행 시 함께 초기화된다(이 테이블은 seed.py가 채우지
+-- 않음, 오직 런타임 구독 액션으로만 채워짐).
+CREATE TABLE IF NOT EXISTS subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    account TEXT NOT NULL,
+    base_model TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(account, base_model)
+);
 """
 
 

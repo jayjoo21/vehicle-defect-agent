@@ -232,3 +232,27 @@ export interface RelatedPartsResponse {
   supplier_group: string | null
   shared: RelatedPartItem[]
 }
+
+export interface LoginResponse {
+  account: string
+  role: 'user' | 'agent'
+}
+
+export interface SubscriptionCard {
+  id: number | null
+  model: string
+  state: SignalState
+  top_symptom: string | null
+  recent_count: number
+  created_at: string
+}
+
+export interface SubscriptionsResponse {
+  subscriptions: SubscriptionCard[]
+}
+
+export interface NotifyResponse {
+  sent: boolean
+  reason?: 'not_configured' | 'slack_error'
+  status_code?: number
+}

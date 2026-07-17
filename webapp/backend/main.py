@@ -5,7 +5,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
-from routers import chat, parts, reports, signals, vehicles
+from env_config import load_env
+
+load_env()  # webapp/.env를 os.environ에 적재 (이미 설정된 실제 OS 환경변수는 덮어쓰지 않음)
+
+from routers import auth, chat, notify, parts, reports, signals, subscriptions, vehicles
 
 app = FastAPI(title="MOBISCOPE API")
 
@@ -25,6 +29,9 @@ app.include_router(vehicles.router, prefix="/api")
 app.include_router(reports.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(parts.router, prefix="/api")
+app.include_router(auth.router, prefix="/api")
+app.include_router(subscriptions.router, prefix="/api")
+app.include_router(notify.router, prefix="/api")
 
 
 @app.get("/api/health")

@@ -3,3 +3,4 @@ uvicorn[standard]
 pydantic
 python-multipart
 pandas==2.2.3
+requests

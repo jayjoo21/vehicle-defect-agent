@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ScanSearch } from 'lucide-react'
 import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
 import { useMyCar } from '../lib/useMyCar'
+import { useRole } from '../lib/role'
 import { HOTSPOT_LABELS } from '../lib/hotspots'
 import { linkifyGlossary } from '../lib/glossary'
 import { stateColor, stateLabel } from '../lib/tokens'
@@ -20,11 +22,23 @@ import Skeleton from '../components/Skeleton'
 // 요약("계기판 외 4개 도메인: 이력 없음")으로 접는다 — 6개를 전부 카드로 나열하면 대부분
 // "이력 없음"이라 신호 대비 잡음이 컸음. 선택된 도메인의 상세 카드는 우측(차 아래)으로 이동.
 export default function MyCar() {
+  const navigate = useNavigate()
+  const role = useRole()
   const { car, register, reset } = useMyCar()
   const [justRegistered, setJustRegistered] = useState(false)
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null)
   const [toast, setToast] = useState<string | null>(null)
   const [subscribeOpen, setSubscribeOpen] = useState(false)
+
+  // 비로그인(consumer) 상태에서 구독을 시도하면 모달을 열지 않고 곧바로 로그인으로 유도한다
+  // — role='user'로 로그인한 이후에만 실제 구독 API(계정 식별자 필요)를 호출할 수 있다.
+  function handleSubscribeClick() {
+    if (role !== 'user') {
+      navigate('/login')
+      return
+    }
+    setSubscribeOpen(true)
+  }
 
   const map = useFetch(
     () => (car ? api.vehicleMap(car.model, car.year) : Promise.reject(new Error('등록된 차량 없음'))),
@@ -92,7 +106,7 @@ export default function MyCar() {
           </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setSubscribeOpen(true)}
+              onClick={handleSubscribeClick}
               className="btn-tension inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium"
               style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}
             >

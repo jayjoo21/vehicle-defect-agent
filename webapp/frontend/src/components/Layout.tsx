@@ -2,18 +2,32 @@ import { useState } from 'react'
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { Bell } from 'lucide-react'
 import { DATA_AS_OF } from '../lib/tokens'
-import { useRole, logout } from '../lib/role'
+import { useRole, useAccount, logout } from '../lib/role'
+import { SubscriptionsProvider, useSubscriptions } from '../lib/subscriptions'
 import Logo from './Logo'
 import Footer from './Footer'
-import NotificationDrawer, { MOCK_SUBSCRIPTIONS } from './NotificationDrawer'
+import NotificationDrawer from './NotificationDrawer'
 
 const navClass = ({ isActive }: { isActive: boolean }) =>
   `text-sm font-medium ${isActive ? 'text-[#002C5F]' : 'text-[#6B7280] hover:text-[#111318]'}`
 
 export default function Layout() {
+  // SubscriptionsProvider가 LayoutInner를 감싸야 그 안의 useSubscriptions()(배지 카운트·
+  // 드로어·MyCar의 구독 모달이 모두 공유)가 값을 읽을 수 있다 — Layout 자신은 자기가 만든
+  // Provider를 소비할 수 없어 내부 컴포넌트로 분리했다.
+  return (
+    <SubscriptionsProvider>
+      <LayoutInner />
+    </SubscriptionsProvider>
+  )
+}
+
+function LayoutInner() {
   const location = useLocation()
   const navigate = useNavigate()
   const role = useRole()
+  const account = useAccount()
+  const { items: subscriptions } = useSubscriptions()
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   function handleLogout() {
@@ -40,7 +54,7 @@ export default function Layout() {
               <NavLink to="/reports" className={navClass}>시그널 리포트</NavLink>
               <NavLink to="/chat" className={navClass}>조사 채팅</NavLink>
             </nav>
-            {role === 'agent' && (
+            {role === 'agent' ? (
               <div className="flex items-center gap-2">
                 <span
                   className="rounded-full px-2.5 py-1 text-[11px] font-semibold"
@@ -52,6 +66,23 @@ export default function Layout() {
                   로그아웃
                 </button>
               </div>
+            ) : role === 'user' ? (
+              <div className="flex items-center gap-2">
+                <span
+                  className="max-w-[160px] truncate rounded-full px-2.5 py-1 text-[11px] font-semibold"
+                  style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}
+                  title={account ?? undefined}
+                >
+                  {account}
+                </span>
+                <button onClick={handleLogout} className="text-xs text-[#6B7280] hover:text-[#111318]">
+                  로그아웃
+                </button>
+              </div>
+            ) : (
+              <NavLink to="/login" className="text-sm font-medium text-[#6B7280] hover:text-[#111318]">
+                로그인
+              </NavLink>
             )}
             <button
               onClick={() => setDrawerOpen(true)}
@@ -60,9 +91,9 @@ export default function Layout() {
               style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}
             >
               <Bell size={16} strokeWidth={1.75} />
-              {MOCK_SUBSCRIPTIONS.length > 0 && (
+              {subscriptions.length > 0 && (
                 <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white ring-2 ring-white">
-                  {MOCK_SUBSCRIPTIONS.length}
+                  {subscriptions.length}
                 </span>
               )}
             </button>
