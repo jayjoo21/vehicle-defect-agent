@@ -182,17 +182,7 @@ CDESCR: (입력 A와 완전히 동일한 서술문)
 → `{"symptoms":["AEB 허위 작동으로 급제동","스티어링 휠 자동 우측 쏠림"],"severity":"CRITICAL","driving_context":"주행 중","evidence_quote":"My forward collision light comes on at random and my car has slammed its brakes when I was nowhere near another car or anything obstructing.","insufficient_info":false}`
 판정 메모: COMPDESC가 "전방충돌방지:경고"라 AEB 오작동·조향 쏠림만 다룸. 조명·라디오·창문 관련 서술은 이번 COMPDESC와 무관하므로 배제. 제동=대체불가(Rule②)+오작동(Rule③) → CRITICAL.
 
-**예시 4** — 서술문에 이 COMPDESC 관련 내용이 없는 경우
-입력:
-```
-COMPDESC 대분류: VEHICLE SPEED CONTROL
-COMPDESC 중분류: CRUISE CONTROL
-CDESCR: The engine threw a rod and my car just died on the side of the road. It had apparently been burning oil.
-```
-→ `{"symptoms":[],"severity":"MINOR","driving_context":"불명","evidence_quote":"","insufficient_info":true}`
-판정 메모: 서술문 전체가 엔진 기계적 파손 얘기뿐이고, 크루즈 컨트롤(속도제어) 관련 내용이 전혀 없음 → 이 COMPDESC 측면에서는 판단 불가, insufficient_info=true로 정직하게 표시.
-
-**예시 5** — `UNKNOWN OR OTHER` + 형제 COMPDESC 있음 → 형제가 다루는 내용은 배제
+**예시 4** — `UNKNOWN OR OTHER` + 형제 COMPDESC 있음 → 형제가 다루는 내용은 배제
 
 입력:
 ```
@@ -204,7 +194,7 @@ CDESCR: While driving on the highway, the vehicle suffered a sudden tire blowout
 → `{"symptoms":["주행 중 타이어 파열","비순정 타이어 장착 불량으로 인한 조향 불안"],"severity":"CRITICAL","driving_context":"주행 중","evidence_quote":"While driving on the highway, the vehicle suffered a sudden tire blowout, caused by improper mounting and balancing done at installation with non-OEM tires; I nearly lost control and had to pull over.","insufficient_info":false}`
 판정 메모: 대분류가 `UNKNOWN OR OTHER`라 영문 의미 해석이 불가능하므로 "형제 COMPDESC" 규칙 적용. 형제 행이 이미 "전방충돌 경고" 관련 서술(뒷문장)을 다루고 있으므로 그 부분은 배제하고, 남은 내용(타이어 파열로 인한 조향 상실 위험)만 다룸. 주행 중 조향 상실은 대체 불가 기능(Rule②)이라 CRITICAL.
 
-**예시 6** — `UNKNOWN OR OTHER` + 형제 COMPDESC 없음(입력에 그 줄 자체가 없음) → 서술문 전체에서 가장 두드러진 결함
+**예시 5** — `UNKNOWN OR OTHER` + 형제 COMPDESC 없음(입력에 그 줄 자체가 없음) → 서술문 전체에서 가장 두드러진 결함
 
 입력 (실제 ODINO 11635502, 원본에 이 신고는 이 행 하나뿐이라 "형제 COMPDESC" 줄이 아예 없음):
 ```

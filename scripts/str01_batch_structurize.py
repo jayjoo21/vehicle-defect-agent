@@ -55,6 +55,8 @@ ALLOWED_PARTS = {
 }
 ALLOWED_SEVERITY = {"CRITICAL", "SERIOUS", "MODERATE", "MINOR"}
 ALLOWED_DRIVING_CONTEXT_V4 = {"주행 중", "정차·주차 중", "시동 시", "불명"}
+EMPTY_SYMPTOMS_PLACEHOLDER = ["정보 부족으로 판단 불가"]
+EMPTY_QUOTE_PLACEHOLDER = "(정보 부족으로 근거 문장 없음)"
 REQUIRED_KEYS = {"odino", "part_category", "symptoms", "severity",
                  "driving_context", "evidence_quote", "insufficient_info"}
 REQUIRED_KEYS_V4 = {"symptoms", "severity", "driving_context",
@@ -345,9 +347,10 @@ def main():
                     rec = {
                         "cmplid": cmplid, "odino": odino,
                         "compdesc1": compdesc1, "compdesc2": compdesc2,
-                        "symptoms": rec.get("symptoms"), "severity": rec.get("severity"),
+                        "symptoms": rec.get("symptoms") or list(EMPTY_SYMPTOMS_PLACEHOLDER),
+                        "severity": rec.get("severity"),
                         "driving_context": rec.get("driving_context"),
-                        "evidence_quote": rec.get("evidence_quote"),
+                        "evidence_quote": rec.get("evidence_quote") or EMPTY_QUOTE_PLACEHOLDER,
                         "insufficient_info": rec.get("insufficient_info"),
                     }
                 record_label = cmplid
