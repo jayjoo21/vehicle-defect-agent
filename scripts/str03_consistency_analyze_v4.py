@@ -25,10 +25,10 @@ from collections import Counter
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-RUN_PATHS = [REPO_ROOT / f"data/processed/str03_v4_run{i}.jsonl" for i in (1, 2, 3)]
+RUN_PATHS = [REPO_ROOT / f"data/processed/str03_v4_fixed_run{i}.jsonl" for i in (1, 2, 3)]
 INPUT_CSV = REPO_ROOT / "data/samples/sample_100_v4.csv"
-OUT_REPORT = REPO_ROOT / "data/processed/str03_consistency_v4_report.md"
-OUT_CSV = REPO_ROOT / "data/processed/str03_consistency_v4_detail.csv"
+OUT_REPORT = REPO_ROOT / "data/processed/str03_consistency_v4_fixed_report.md"
+OUT_CSV = REPO_ROOT / "data/processed/str03_consistency_v4_fixed_detail.csv"
 
 DISCRETE_FIELDS = ["severity", "driving_context", "insufficient_info"]
 FIELD_LABEL = {
