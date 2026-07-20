@@ -1,5 +1,5 @@
 """
-STA-01 / STA-02 — 결함 상태 추적 SQLite DB
+MOBISCOPE STA-01 / STA-02 — 결함 상태 추적 SQLite DB
 ============================================================
 목적
 - LLM 구조화 결과와 원본 불만 CSV를 SQLite에 적재한다.
@@ -47,10 +47,40 @@ STA_LABEL = {
 VALID_RESOLUTION = {"OPEN", "IN_PROGRESS", "MONITORING", "RESOLVED", "DISMISSED"}
 SEVERITY_RANK = {"CRITICAL": 4, "SERIOUS": 3, "MODERATE": 2, "MINOR": 1, "UNKNOWN": 0, None: 0}
 
+# --- 차종×부품카테고리 단위 5단계 시그널 상태 -------------------------------
+# defect_status_tracking(위 STA-01/02)은 "신고 1건"이 단위인 이진 판정이고,
+# 그 의미는 바뀌지 않는다. 아래 SIGNAL_*은 그 위에 얹는 별도 집계 레이어
+# (defect_signals 테이블)로, "이 차종 × 이 부품 카테고리" 그룹 전체의
+# 생애주기를 5단계로 추적한다. 실제 판정 로직은 sta_signal_state.py.
+SIGNAL_NEW = "NEW"
+SIGNAL_RISING = "RISING"
+SIGNAL_RECALLED = "RECALLED"
+SIGNAL_DORMANT = "DORMANT"
+SIGNAL_RECURRING = "RECURRING"
+SIGNAL_STATES = (SIGNAL_NEW, SIGNAL_RISING, SIGNAL_RECALLED, SIGNAL_DORMANT, SIGNAL_RECURRING)
+SIGNAL_LABEL_KO = {
+    SIGNAL_NEW: "신규",
+    SIGNAL_RISING: "증가",
+    SIGNAL_RECALLED: "리콜",
+    SIGNAL_DORMANT: "잠잠",
+    SIGNAL_RECURRING: "재발",
+}
+# 대시보드/채팅 답변에서 우선 검토해야 할 순서(위험도 아님, 관심순).
+SIGNAL_PRIORITY_ORDER = {
+    SIGNAL_RECURRING: 1, SIGNAL_RISING: 2, SIGNAL_RECALLED: 3, SIGNAL_NEW: 4, SIGNAL_DORMANT: 5,
+}
+
 PART_RECALL_KEYWORDS = {
     "ELECTRICAL_SYSTEM": ["ELECTRICAL", "BATTERY", "WIRING", "INSTRUMENT", "CLUSTER", "DISPLAY", "SOFTWARE"],
     "ADAS": ["LANE", "COLLISION", "CAMERA", "RADAR", "SENSOR", "ELECTRONIC STABILITY", "FORWARD"],
     "POWERTRAIN_SW": ["ENGINE", "POWER TRAIN", "THROTTLE", "ECM", "ECU", "SOFTWARE", "FUEL"],
+    # 아래 3종은 STR-04 v3 스키마(8종) 확정 시 추가됨(2026-07-13). 기존 3종만 있으면
+    # 이 3개 카테고리는 _component_matches()가 항상 False를 반환해 리콜 매칭이
+    # 전혀 안 되는 조용한 누락이 생긴다 — INV-01의 PART_CATEGORY_KEYWORDS에도
+    # 동일한 갭이 있으나 그 파일은 STA 담당 범위가 아니라 별도로 전달함.
+    "INSTRUMENT_CLUSTER": ["INSTRUMENT", "CLUSTER", "DASH", "DISPLAY", "SPEEDOMETER", "GAUGE"],
+    "PROPULSION_BATTERY": ["BATTERY", "PROPULSION", "HIGH VOLTAGE", "HV BATTERY", "EV BATTERY", "ICCU", "CHARGING"],
+    "BRAKES_ELECTRONIC": ["BRAKE", "BRAKES", "ABS", "ELECTRONIC STABILITY", "ESC"],
     "NON_ELECTRICAL": [],
     "INSUFFICIENT_INFO": [],
 }
@@ -184,10 +214,57 @@ def init_db(db_path: str | Path | None = None) -> sqlite3.Connection:
             changed_at   TEXT DEFAULT (datetime('now','localtime'))
         );
         CREATE INDEX IF NOT EXISTS idx_log_tracking ON status_change_log(tracking_id);
+
+        -- 차종×부품카테고리 단위 5단계 시그널(신규/증가/리콜/잠잠/재발).
+        -- defect_status_tracking(신고 단위)과 별개 테이블 — 기존 의미를 안 건드리고
+        -- 그 위에 얹는 집계 레이어. 계산 로직은 sta_signal_state.py.
+        CREATE TABLE IF NOT EXISTS defect_signals (
+            signal_id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            vehicle_id           INTEGER NOT NULL REFERENCES vehicles(vehicle_id),
+            part_category        TEXT NOT NULL,
+            signal_state         TEXT NOT NULL CHECK(signal_state IN
+                                  ('NEW','RISING','RECALLED','DORMANT','RECURRING')),
+            recall_id            INTEGER REFERENCES recall_records(recall_id),
+            complaint_count      INTEGER NOT NULL DEFAULT 0,
+            first_complaint_date TEXT,
+            last_complaint_date  TEXT,
+            recent_count         INTEGER,
+            baseline_count       INTEGER,
+            surge_ratio          REAL,
+            surge_level          TEXT,
+            quiet_months         REAL,
+            state_reason         TEXT,
+            computed_at          TEXT DEFAULT (datetime('now','localtime')),
+            UNIQUE(vehicle_id, part_category)
+        );
+        CREATE INDEX IF NOT EXISTS idx_signals_state ON defect_signals(signal_state);
+        CREATE INDEX IF NOT EXISTS idx_signals_vehicle ON defect_signals(vehicle_id);
+
+        CREATE TABLE IF NOT EXISTS signal_state_log (
+            log_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_id    INTEGER NOT NULL REFERENCES defect_signals(signal_id),
+            old_state    TEXT,
+            new_state    TEXT NOT NULL,
+            reason       TEXT,
+            changed_at   TEXT DEFAULT (datetime('now','localtime'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_signal_log_signal ON signal_state_log(signal_id);
         """
     )
     conn.commit()
+    _ensure_column(conn, "recall_records", "part_number", "TEXT")
+    _ensure_column(conn, "recall_records", "part_family", "TEXT")
+    conn.commit()
     return conn
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str, column: str, coltype: str) -> None:
+    """이미 만들어져 있던 DB 파일에도 안전하게 컬럼을 추가한다(재실행해도 에러 없음).
+    ALTER TABLE ADD COLUMN은 SQLite에서 기존 행을 안 건드리고 NULL로 채우는
+    비파괴적 작업이라, 운영 중인 DB에 실행해도 안전하다."""
+    cols = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {coltype}")
 
 
 def _date_to_iso(value: Any, *, dayfirst: bool = False) -> str | None:
@@ -361,26 +438,38 @@ def register_recall(
     model: str,
     year: int | str | None,
     campaign_no: str,
-    recall_date: str,
+    recall_date: str | None,
     component: str,
     summary: str = "",
     source: str = "MANUAL",
     status: str = "OPEN",
+    part_number: str | None = None,
+    part_family: str | None = None,
 ) -> int:
-    """리콜 이력 수동/외부 적재. STA-02 판정의 기준 데이터가 된다."""
+    """리콜 이력 수동/외부 적재. STA-02 판정 및 defect_signals 판정의 기준 데이터가 된다.
+
+    part_number/part_family는 RCL573 파이프라인(sta_recall_loader.py)에서만 채워지는
+    선택 필드다. recall_date는 None/빈 문자열이어도 안전하게 NULL로 저장된다 — RCL573
+    산출물에 리콜일이 없는 경우가 있어(sta_recall_loader.py 문서 참고) 필수값으로 두지
+    않았다.
+    """
     vid = upsert_vehicle(conn, make, model, year)
+    iso_date = _date_to_iso(recall_date, dayfirst=True) if recall_date else None
     cur = conn.execute(
         """
-        INSERT INTO recall_records(vehicle_id, campaign_no, recall_date, component, summary, source, status)
-        VALUES(?,?,?,?,?,?,?)
+        INSERT INTO recall_records(vehicle_id, campaign_no, recall_date, component, summary, source, status,
+                                    part_number, part_family)
+        VALUES(?,?,?,?,?,?,?,?,?)
         ON CONFLICT(vehicle_id, campaign_no) DO UPDATE SET
-            recall_date=excluded.recall_date,
+            recall_date=COALESCE(excluded.recall_date, recall_records.recall_date),
             component=excluded.component,
             summary=excluded.summary,
             source=excluded.source,
-            status=excluded.status
+            status=excluded.status,
+            part_number=COALESCE(excluded.part_number, recall_records.part_number),
+            part_family=COALESCE(excluded.part_family, recall_records.part_family)
         """,
-        (vid, campaign_no, _date_to_iso(recall_date, dayfirst=True) or recall_date, component, summary, source, status),
+        (vid, campaign_no, iso_date, component, summary, source, status, part_number, part_family),
     )
     conn.commit()
     row = conn.execute(
@@ -456,6 +545,36 @@ def find_matching_recall(
             continue
         return int(r["recall_id"]), f"동일 차량·유사 부품 리콜({r['campaign_no']}) 존재, 날짜 비교 불완전"
     return None, "동일 차량·유사 부품의 과거 리콜 이력 없음"
+
+
+def find_all_matching_recalls(
+    conn: sqlite3.Connection,
+    vehicle_id: int | None,
+    part_category: str | None,
+) -> tuple[int | None, str, str | None]:
+    """
+    find_matching_recall()과의 차이: 그건 "신고 1건이 리콜 이후 재발인가"(날짜 선후 필수)를
+    묻고, 이건 "이 차종×부품카테고리에 리콜이 존재하는가"(날짜 무관)만 묻는다.
+    defect_signals 시그널 판정(sta_signal_state.py)에 쓰인다.
+
+    반환: (recall_id 또는 None, 판정 근거 설명, recall_date 또는 None)
+    recall_date가 있는 레코드를 우선하고, 그중 최신순으로 첫 매치를 반환한다.
+    """
+    if not vehicle_id or not part_category:
+        return None, "vehicle_id 또는 part_category 없음", None
+    rows = conn.execute(
+        "SELECT * FROM recall_records WHERE vehicle_id=? "
+        "ORDER BY (recall_date IS NULL) ASC, recall_date DESC",
+        (vehicle_id,),
+    ).fetchall()
+    for r in rows:
+        if _component_matches(part_category, r["component"]):
+            return (
+                int(r["recall_id"]),
+                f"리콜({r['campaign_no']}) 매칭: {r['component']}",
+                r["recall_date"],
+            )
+    return None, "동일 차량·유사 부품의 리콜 이력 없음", None
 
 
 def classify_and_track(conn: sqlite3.Connection, odino: str, *, notes: str | None = None) -> dict[str, Any]:
@@ -623,6 +742,108 @@ def query_status_summary(conn: sqlite3.Connection) -> pd.DataFrame:
 def export_status_view(conn: sqlite3.Connection, out_path: str | Path | None = None) -> Path:
     out = _resolve(out_path, DEFAULT_VIEW_CSV, FALLBACKS["view"], create_parent=True)
     df = query_status_summary(conn)
+    df.to_csv(out, index=False, encoding="utf-8-sig")
+    print(f"[STA EXPORT] path={out} rows={len(df):,}")
+    return out
+
+
+def upsert_signal_state(conn: sqlite3.Connection, signal: dict[str, Any]) -> dict[str, Any]:
+    """
+    sta_signal_state.py가 계산한 판정 결과 dict 하나를 defect_signals에 INSERT/UPDATE하고,
+    상태가 바뀐 경우에만 signal_state_log에 이력을 남긴다.
+
+    이 함수는 순수 저장 담당이다 — "무엇이 신규/증가/리콜/잠잠/재발인지" 판단하는
+    로직은 여기 없다(sta_signal_state.compute_signal_state가 담당). 스키마를 아는
+    코드는 이 파일 하나로 모아 SQL이 여러 파일에 흩어지지 않게 했다.
+
+    signal 필수 키: vehicle_id, part_category, signal_state, state_reason
+    선택 키(없으면 None/0으로 저장): recall_id, complaint_count, first_complaint_date,
+    last_complaint_date, recent_count, baseline_count, surge_ratio, surge_level, quiet_months
+    """
+    if signal["signal_state"] not in SIGNAL_STATES:
+        raise ValueError(f"알 수 없는 signal_state: {signal['signal_state']!r} (허용: {SIGNAL_STATES})")
+
+    existing = conn.execute(
+        "SELECT signal_id, signal_state FROM defect_signals WHERE vehicle_id=? AND part_category=?",
+        (signal["vehicle_id"], signal["part_category"]),
+    ).fetchone()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    g = lambda k, default=None: signal.get(k, default)
+
+    if existing:
+        sid = int(existing["signal_id"])
+        old_state = existing["signal_state"]
+        conn.execute(
+            """
+            UPDATE defect_signals SET
+                signal_state=?, recall_id=?, complaint_count=?, first_complaint_date=?,
+                last_complaint_date=?, recent_count=?, baseline_count=?, surge_ratio=?,
+                surge_level=?, quiet_months=?, state_reason=?, computed_at=?
+            WHERE signal_id=?
+            """,
+            (signal["signal_state"], g("recall_id"), g("complaint_count", 0), g("first_complaint_date"),
+             g("last_complaint_date"), g("recent_count"), g("baseline_count"), g("surge_ratio"),
+             g("surge_level"), g("quiet_months"), signal["state_reason"], now, sid),
+        )
+        if old_state != signal["signal_state"]:
+            conn.execute(
+                "INSERT INTO signal_state_log(signal_id, old_state, new_state, reason) VALUES(?,?,?,?)",
+                (sid, old_state, signal["signal_state"], signal["state_reason"]),
+            )
+    else:
+        cur = conn.execute(
+            """
+            INSERT INTO defect_signals(
+                vehicle_id, part_category, signal_state, recall_id, complaint_count,
+                first_complaint_date, last_complaint_date, recent_count, baseline_count,
+                surge_ratio, surge_level, quiet_months, state_reason
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (signal["vehicle_id"], signal["part_category"], signal["signal_state"], g("recall_id"),
+             g("complaint_count", 0), g("first_complaint_date"), g("last_complaint_date"), g("recent_count"),
+             g("baseline_count"), g("surge_ratio"), g("surge_level"), g("quiet_months"), signal["state_reason"]),
+        )
+        sid = int(cur.lastrowid)
+        conn.execute(
+            "INSERT INTO signal_state_log(signal_id, old_state, new_state, reason) VALUES(?,?,?,?)",
+            (sid, None, signal["signal_state"], signal["state_reason"]),
+        )
+    conn.commit()
+    out = dict(signal)
+    out["signal_id"] = sid
+    return out
+
+
+def query_signal_summary(conn: sqlite3.Connection) -> pd.DataFrame:
+    """defect_signals를 차량/리콜 정보와 조인해 대시보드·CHT-01이 바로 쓰기 좋은 형태로 반환."""
+    return pd.read_sql_query(
+        """
+        SELECT
+            ds.signal_id, v.make, v.model, v.year,
+            ds.part_category, ds.signal_state, ds.complaint_count,
+            ds.first_complaint_date, ds.last_complaint_date,
+            ds.recent_count, ds.baseline_count, ds.surge_ratio, ds.surge_level,
+            ds.quiet_months, ds.state_reason,
+            r.campaign_no, r.recall_date, r.source AS recall_source,
+            ds.computed_at
+        FROM defect_signals ds
+        LEFT JOIN vehicles v ON ds.vehicle_id = v.vehicle_id
+        LEFT JOIN recall_records r ON ds.recall_id = r.recall_id
+        ORDER BY
+            CASE ds.signal_state
+                WHEN 'RECURRING' THEN 1 WHEN 'RISING' THEN 2 WHEN 'RECALLED' THEN 3
+                WHEN 'NEW' THEN 4 WHEN 'DORMANT' THEN 5 ELSE 6
+            END,
+            ds.last_complaint_date DESC
+        """,
+        conn,
+    )
+
+
+def export_signal_view(conn: sqlite3.Connection, out_path: str | Path | None = None) -> Path:
+    default = DEFAULT_VIEW_CSV.parent / "defect_signal_view.csv"
+    out = _resolve(out_path, default, [p.parent / "defect_signal_view_generated.csv" for p in FALLBACKS["view"]], create_parent=True)
+    df = query_signal_summary(conn)
     df.to_csv(out, index=False, encoding="utf-8-sig")
     print(f"[STA EXPORT] path={out} rows={len(df):,}")
     return out
