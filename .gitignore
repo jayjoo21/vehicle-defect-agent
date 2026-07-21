@@ -13,3 +13,15 @@ __pycache__/
 
 # Playwright MCP 디버그 산출물 (스크린샷 테스트용, 커밋 대상 아님)
 .playwright-mcp/
+
+# LaTeX 빌드 중간 산출물 (report/main.pdf만 커밋, 나머지는 재컴파일로 생성)
+report/*.aux
+report/*.log
+report/*.bbl
+report/*.bbl-SAVE-ERROR
+report/*.blg
+report/*.out
+report/*.toc
+report/*.fls
+report/*.fdb_latexmk
+report/*.synctex.gz

@@ -1,0 +1,85 @@
+% docs/paper/references.bib
+% docs/paper/references/ 내 PDF 7편을 실제로 열어 1~3페이지에서 직접 읽은 정보만으로 작성.
+% 기억으로 채운 필드 없음. 서지정보가 PDF에서 확인 안 되면 필드를 비우고 옆에 % 확인 필요 주석.
+% 주의: BibTeX는 엔트리(@...{...}) "내부"의 줄 끝 % 주석을 지원하지 않는다(필드명 누락 오류
+% 발생, main.tex 컴파일 중 확인됨) — 그래서 아래는 모든 설명 주석을 엔트리 "앞" 줄로 옮겼다.
+% 필드 값 자체는 전혀 바꾸지 않았다.
+
+% pages: PDF 표지에 "17 pages"로 명시(총 페이지수). 게재 논문집 내 실제 시작-끝 페이지 번호는
+% PDF에 없음 — 확인 필요
+@inproceedings{ayoub2022adas,
+  author    = {Ayoub, Jackie and Wang, Zifei and Li, Meitang and Guo, Huizhong and Sherony, Rini and Bao, Shan and Zhou, Feng},
+  title     = {Cause-and-Effect Analysis of {ADAS}: A Comparison Study between Literature Review and Complaint Data},
+  booktitle = {14th International Conference on Automotive User Interfaces and Interactive Vehicular Applications (AutomotiveUI '22)},
+  year      = {2022},
+  address   = {Seoul, Republic of Korea},
+  publisher = {ACM},
+  pages     = {17},
+  doi       = {10.1145/3543174.3547117},
+}
+
+% pages: PDF 2쪽 하단에 "556"만 확인됨(정확한 시작-끝 페이지 범위는 PDF에서 직접 확인 안 됨)
+% — 확인 필요
+@article{artstein2008intercoder,
+  author  = {Artstein, Ron and Poesio, Massimo},
+  title   = {Inter-Coder Agreement for Computational Linguistics},
+  journal = {Computational Linguistics},
+  year    = {2008},
+  volume  = {34},
+  number  = {4},
+  pages   = {},
+  publisher = {Association for Computational Linguistics},
+}
+
+% year: PDF 본문(1~3쪽)에 발행연도·게재처 표기가 없음 — 확인 필요
+% note: PDF에서 확인된 소속만 기재. 저널/학회명 확인 필요
+% TODO: 서지정보 확인 필요 — bastani_lda_cfpb는 게재처(저널/컨퍼런스명)와 연도를 PDF에서 찾지 못함.
+% 원문 어딘가(참고문헌 목록 자기인용, arXiv 배너 등)에 더 있을 수 있어 추가 확인 필요.
+@misc{bastani_lda_cfpb,
+  author = {Bastani, Kaveh and Namavari, Hamed and Shaffer, Jeffry},
+  title  = {Latent {D}irichlet {A}llocation ({LDA}) for Topic Modeling of the {CFPB} Consumer Complaints},
+  year   = {},
+  note   = {Unifund CCR, LLC / University of Cincinnati.},
+}
+
+% year: 표지에는 "Vol. 24, No. 6, June 2015" / copyright line은 "\c{} 2014"로 별도 표기
+% (온라인 선공개 연도로 추정) — 게재연도 2015로 채택
+@article{abrahams2015textanalytic,
+  author  = {Abrahams, Alan S. and Fan, Weiguo and Wang, G. Alan and Zhang, Zhongju (John) and Jiao, Jian},
+  title   = {An Integrated Text Analytic Framework for Product Defect Discovery},
+  journal = {Production and Operations Management},
+  year    = {2015},
+  volume  = {24},
+  number  = {6},
+  pages   = {975--990},
+  doi     = {10.1111/poms.12303},
+}
+
+@article{li2025xgboost,
+  author  = {Li, Yi-Na and Jiang, Ming and Wang, Likun and Wei, Jiuchang},
+  title   = {{XGBoost}-based Risk Prediction Model for Massive Vehicle Recalls Using Consumer Complaints},
+  journal = {Risk Analysis},
+  year    = {2025},
+  volume  = {45},
+  pages   = {4408--4422},
+  doi     = {10.1111/risa.70052},
+}
+
+@techreport{nhtsa2020riskbased,
+  author      = {{National Highway Traffic Safety Administration}},
+  title       = {Risk-Based Processes for Safety Defect Analysis and Management of Recalls},
+  institution = {U.S. Department of Transportation},
+  year        = {2020},
+  month       = {11},
+  number      = {DOT HS 812 984},
+}
+
+@inproceedings{zheng2023judging,
+  author    = {Zheng, Lianmin and Chiang, Wei-Lin and Sheng, Ying and Zhuang, Siyuan and Wu, Zhanghao and Zhuang, Yonghao and Xing, Eric P. and Zhang, Hao and Lin, Zi and Li, Zhuohan and Li, Dacheng and Gonzalez, Joseph E. and Stoica, Ion},
+  title     = {Judging {LLM}-as-a-Judge with {MT}-Bench and Chatbot Arena},
+  booktitle = {37th Conference on Neural Information Processing Systems (NeurIPS 2023) Track on Datasets and Benchmarks},
+  year      = {2023},
+  eprint    = {2306.05685},
+  archivePrefix = {arXiv},
+  primaryClass  = {cs.CL},
+}
