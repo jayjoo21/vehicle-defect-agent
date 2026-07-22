@@ -48,6 +48,17 @@ STA-01/02 핵심 모듈 — 차종×부품카테고리 단위 5단계 시그널 
     전체가 같은 시계로 판정된다 — 그룹마다 "최근"의 기준일이 달랐던 예전 설계보다
     일관성이 높아진 개선이다.
 
+⚠️ 2026-07-20 개정 — STR v4(상진) 대응, part_category → compdesc1
+    STR이 part_category(LLM 판단 8종 enum)를 없애고 원본 COMPDESC를 코드가 그대로
+    잘라 채우는 compdesc1/compdesc2로 바꿨다. sta01_02_status_tracking.py의
+    structured_results 테이블도 같이 바뀌어서(컬럼명 compdesc1, PK도 odino→cmplid로
+    변경) 이 파일의 fetch_signal_groups()가 쓰던 SQL이 깨져있었다 — part_category
+    컬럼 자체가 없어졌으니 그 컬럼을 셀렉트/필터하던 쿼리가 실행 시점에 바로
+    sqlite3.OperationalError(no such column)로 죽는 상태였다. 아래 함수들을
+    compdesc1 기준으로 다시 맞췄다. 판정 알고리즘(_classify_surge,
+    compute_signal_state의 5단계 순서) 자체는 안 건드림 — 순수하게 컬럼명
+    참조 부분만 수정.
+
 사용법
     from sta01_02_status_tracking import get_conn
     from sta_signal_state import recompute_all_signal_states
@@ -97,7 +108,7 @@ def _parse_iso_date(value: str | None) -> datetime | None:
 
 
 def _months_between(a: datetime, b: datetime) -> float:
-    return abs((b - a).days) / DAYS_PER_MONTH
+    return max(0, (b - a).days) / DAYS_PER_MONTH
 
 
 def _max_internal_gap_months(sorted_dates: list[datetime]) -> float:
@@ -148,29 +159,40 @@ def _classify_surge(
 
 
 def fetch_signal_groups(conn: sqlite3.Connection) -> list[dict[str, Any]]:
-    """complaint_reports + structured_results를 (vehicle_id, part_category)로 묶어
+    """complaint_reports + structured_results를 (vehicle_id, compdesc1)로 묶어
     그룹별 odino 목록과 신고일 목록을 뽑는다.
 
-    part_category가 NULL이거나 'INSUFFICIENT_INFO'인 신고는 제외한다 — STR이
-    카테고리를 판단하지 못했다고 명시한 건을 "부품 카테고리 시그널"로 집계하면
-    의미가 없기 때문(오히려 여러 실제 카테고리의 노이즈를 한 덩어리로 섞는 꼴).
+    2026-07-20: part_category → compdesc1로 변경(STR v4, sta01_02_status_tracking.py
+    스키마 변경에 맞춤). compdesc1이 NULL이거나 'UNKNOWN OR OTHER'인 신고는
+    제외한다 — STR이 대분류를 판단하지 못했다고 명시한 건(또는 형제 COMPDESC가
+    이미 다뤄서 이 앵커에는 판단 근거가 없는 건)을 "부품 카테고리 시그널"로
+    집계하면 의미가 없기 때문(오히려 여러 실제 카테고리의 노이즈를 한 덩어리로
+    섞는 꼴) — 구버전의 'INSUFFICIENT_INFO' 제외와 동일한 원칙을 v4 값
+    'UNKNOWN OR OTHER'에 맞게 이어받았다.
+
+    2026-07-20: structured_results가 이제 cmplid 단위(odino당 여러 행 가능)라
+    JOIN 결과도 odino당 여러 행이 나올 수 있다 — 이건 의도된 동작이다. 한 odino가
+    "ELECTRICAL SYSTEM"과 "FORWARD COLLISION AVOIDANCE" 둘 다에 해당하는 CMPLID를
+    가지고 있으면, 그 신고는 두 시그널 그룹 모두에 정당하게 기여해야 한다(같은
+    신고라도 서로 다른 결함 유형을 보고하고 있는 것이므로 각 그룹 입장에선 유효한
+    데이터 포인트).
     """
     rows = conn.execute(
         """
-        SELECT cr.odino, cr.vehicle_id, cr.fail_date, cr.ldate, sr.part_category
+        SELECT DISTINCT cr.odino, cr.vehicle_id, cr.fail_date, cr.ldate, sr.compdesc1
         FROM complaint_reports cr
         JOIN structured_results sr ON cr.odino = sr.odino
-        WHERE sr.part_category IS NOT NULL
-              AND sr.part_category != 'INSUFFICIENT_INFO'
+        WHERE sr.compdesc1 IS NOT NULL
+              AND sr.compdesc1 != 'UNKNOWN OR OTHER'
               AND cr.vehicle_id IS NOT NULL
         """
     ).fetchall()
 
     groups: dict[tuple[int, str], dict[str, Any]] = {}
     for r in rows:
-        key = (r["vehicle_id"], r["part_category"])
+        key = (r["vehicle_id"], r["compdesc1"])
         g = groups.setdefault(
-            key, {"vehicle_id": r["vehicle_id"], "part_category": r["part_category"], "odinos": [], "dates": []}
+            key, {"vehicle_id": r["vehicle_id"], "compdesc1": r["compdesc1"], "odinos": [], "dates": []}
         )
         g["odinos"].append(r["odino"])
         d = _parse_iso_date(r["ldate"]) or _parse_iso_date(r["fail_date"])
@@ -186,23 +208,27 @@ def compute_signal_state(
     as_of: datetime | None = None,
     dormant_months: float = DORMANT_MONTHS,
 ) -> dict[str, Any]:
-    """그룹 하나(차종×부품카테고리)의 5단계 상태를 판정해 dict로 반환한다.
+    """그룹 하나(차종×compdesc1)의 5단계 상태를 판정해 dict로 반환한다.
     저장은 하지 않는다 — 호출자가 sta01_02_status_tracking.upsert_signal_state()로
     저장 여부를 결정한다(계산과 저장의 책임 분리).
 
     2026-07-14: inv_df 인자 제거됨(INV-01 의존성 제거). 시그널 시점 신고일만
     있으면 계산 가능하므로 STA 자신의 SQLite만으로 완결된다.
+    2026-07-20: part_category → compdesc1(STR v4 대응).
     """
     vehicle_id = group["vehicle_id"]
-    part_category = group["part_category"]
-    dates = sorted(group["dates"])
-    odinos = group["odinos"]
+    compdesc1 = group["compdesc1"]
+    all_dates = sorted(group["dates"])
+    odinos = list(dict.fromkeys(group["odinos"]))
+    as_of = as_of or (all_dates[-1] if all_dates else datetime.now())
+    dates = [date for date in all_dates if date <= as_of]
 
     first_complaint = dates[0] if dates else None
     last_complaint = dates[-1] if dates else None
-    as_of = as_of or last_complaint or datetime.now()
 
-    recall_id, recall_basis, recall_date = find_all_matching_recalls(conn, vehicle_id, part_category)
+    recall_id, recall_basis, recall_date = find_all_matching_recalls(
+        conn, vehicle_id, compdesc1, as_of.strftime("%Y-%m-%d")
+    )
     has_recall = recall_id is not None
 
     months_since_last = _months_between(last_complaint, as_of) if last_complaint else None
@@ -242,7 +268,7 @@ def compute_signal_state(
 
     return {
         "vehicle_id": vehicle_id,
-        "part_category": part_category,
+        "compdesc1": compdesc1,
         "signal_state": state,
         "state_reason": reason,
         "recall_id": recall_id,
@@ -253,7 +279,7 @@ def compute_signal_state(
         "baseline_count": surge.get("baseline_count", 0),
         "surge_ratio": surge.get("ratio"),
         "surge_level": surge.get("surge_level"),
-        "quiet_months": round(max_gap, 1),
+        "quiet_months": round(months_since_last, 1) if months_since_last is not None else None,
     }
 
 
@@ -263,7 +289,7 @@ def recompute_all_signal_states(
     as_of: datetime | None = None,
     dormant_months: float = DORMANT_MONTHS,
 ) -> list[dict[str, Any]]:
-    """전체 (vehicle_id, part_category) 조합을 순회하며 defect_signals를 갱신한다.
+    """전체 (vehicle_id, compdesc1) 조합을 순회하며 defect_signals를 갱신한다.
 
     as_of 기본값: STA 자신의 신고 이력 중 가장 최근 날짜("데이터 자체의 현재
     시점"). 실제 실행 시각이 아니라 데이터 안의 최신 시점을 기준으로 삼는 이유는
@@ -271,6 +297,7 @@ def recompute_all_signal_states(
     같은 판정이 실행 시각에 따라 흔들리지 않게 하기 위해서다.
 
     2026-07-14: inv_df 인자 제거(더 이상 INV-01 DataFrame이 필요 없음).
+    2026-07-20: part_category → compdesc1(STR v4 대응).
     """
     groups = fetch_signal_groups(conn)
 

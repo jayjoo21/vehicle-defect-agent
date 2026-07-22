@@ -51,10 +51,22 @@ from typing import Any
 
 from sta01_02_status_tracking import register_recall
 
-DEFAULT_COMPONENTS_CSV = Path("data/processed/rcl573_components_normalized.csv")
+DEFAULT_COMPONENTS_CSV = Path("data/processed/rcl573_components_with_compdesc1.csv")
 DEFAULT_SHARED_PARTS_CSV = Path("data/processed/shared_parts.csv")
 RCL_FALLBACKS = {
-    "components": [Path("/mnt/data/rcl573_components_normalized.csv"), Path("rcl573_components_normalized.csv")],
+    # 2026-07-21 신규(설계 한계 C 돌파): rcl573_classify_compdesc.py가 만드는
+    # compdesc1 분류 붙은 파일을 기본으로 쓰되, 아직 그 분류를 안 돌렸거나
+    # 파일이 없는 환경에서도 죽지 않도록 원본(compdesc1 없음)을 폴백으로 남겨둔다
+    # — 이 경우 register_recall()에 compdesc1=None이 전달되고,
+    # sta01_02_status_tracking.py의 _recall_matches()가 자동으로 기존 키워드
+    # 휴리스틱(COMPDESC1_RECALL_KEYWORDS)으로 폴백한다.
+    "components": [
+        Path("data/processed/rcl573_components_normalized.csv"),
+        Path("/mnt/data/rcl573_components_with_compdesc1.csv"),
+        Path("/mnt/data/rcl573_components_normalized.csv"),
+        Path("rcl573_components_with_compdesc1.csv"),
+        Path("rcl573_components_normalized.csv"),
+    ],
     "shared_parts": [Path("/mnt/data/shared_parts.csv"), Path("shared_parts.csv")],
 }
 
@@ -67,7 +79,33 @@ MODEL_TO_MAKE: dict[str, str] = {
     "VENUE": "HYUNDAI", "ACCENT": "HYUNDAI", "NEXO": "HYUNDAI",
     "SORENTO": "KIA", "SPORTAGE": "KIA", "FORTE": "KIA", "SOUL": "KIA", "TELLURIDE": "KIA",
     "CADENZA": "KIA", "K5": "KIA", "K8": "KIA", "K9": "KIA", "NIRO": "KIA", "SELTOS": "KIA",
-    "CARNIVAL": "KIA", "STINGER": "KIA", "RIO": "KIA",
+    "CARNIVAL": "KIA", "STINGER": "KIA", "RIO": "KIA", "EV9": "KIA",
+    # 2026-07-15 효선 추가 — 실행 로그에서 발견된 미매핑 25종
+    "CARNIVAL HYBRID": "KIA",
+    "ELANTRA HYBRID": "HYUNDAI",
+    "ELANTRA N": "HYUNDAI",
+    "EV6": "KIA",
+    "GV60": "GENESIS",
+    "GV70 ELECTRIFIED": "GENESIS",
+    "IONIQ 6": "HYUNDAI",
+    "IONIQ 9": "HYUNDAI",
+    "IONIQ ELECTRIC": "HYUNDAI",
+    "K4": "KIA",
+    "K900": "KIA",
+    "KONA ELECTRIC": "HYUNDAI",
+    "NIRO EV": "KIA",
+    "NIRO PHEV": "KIA",
+    "PALISADE HYBRID": "HYUNDAI",
+    "SANTA CRUZ": "HYUNDAI",
+    "SANTA FE HYBRID": "HYUNDAI",
+    "SANTA FE PLUG-IN HYBRID": "HYUNDAI",
+    "SONATA HYBRID": "HYUNDAI",
+    "SORENTO HYBRID": "KIA",
+    "SORENTO PHEV": "KIA",
+    "SPORTAGE HYBRID": "KIA",
+    "SPORTAGE PHEV": "KIA",
+    "TUCSON HYBRID": "HYUNDAI",
+    "TUCSON PLUG-IN HYBRID": "HYUNDAI",
 }
 
 AFFECTED_MODEL_RE = re.compile(r"^(.*\S)\s+(\d{4})$")
@@ -144,7 +182,7 @@ def load_rcl573_recalls(
     # (rcl573_shared_parts.py의 part_numbers 컬럼과 동일한 방식).
     groups: dict[tuple[str, str, str, str], dict[str, Any]] = defaultdict(lambda: {
         "part_numbers": [], "component_names": set(), "component_descs": set(), "defect_causes": set(),
-        "recall_dates": set(),
+        "recall_dates": set(), "compdesc1_values": set(),
     })
     unmapped_models: set[str] = set()
     n_no_affected_models = 0
@@ -164,6 +202,11 @@ def load_rcl573_recalls(
         defect_cause = (row.get("defect_cause") or "").strip()
         # recall_date 컬럼이 아예 없는 구버전 CSV여도 .get()이 빈 문자열을 주므로 안전.
         recall_date = (row.get("recall_date") or "").strip()
+        # 2026-07-21 신규: compdesc1 컬럼이 없는 구버전 CSV(rcl573_components_
+        # normalized.csv)를 넣어도 .get()이 빈 문자열을 주므로 안전 — 이 경우
+        # register_recall()에 compdesc1=None이 전달되고 아래에서 자동으로
+        # 키워드 휴리스틱 폴백 경로로 빠진다.
+        compdesc1 = (row.get("compdesc1") or "").strip()
 
         for model, year in affected:
             make = MODEL_TO_MAKE.get(model)
@@ -182,9 +225,12 @@ def load_rcl573_recalls(
                 g["defect_causes"].add(defect_cause)
             if recall_date:
                 g["recall_dates"].add(recall_date)
+            if compdesc1:
+                g["compdesc1_values"].add(compdesc1)
 
     n_loaded = 0
     n_with_recall_date = 0
+    n_with_compdesc1 = 0
     for (make, model, year, campaign), g in groups.items():
         component = "; ".join(sorted(g["component_names"])) or "; ".join(sorted(g["component_descs"])) or "UNKNOWN"
         summary = "; ".join(sorted(g["defect_causes"]))[:500]
@@ -196,6 +242,14 @@ def load_rcl573_recalls(
         recall_date = min(g["recall_dates"]) if g["recall_dates"] else None
         if recall_date:
             n_with_recall_date += 1
+        # 2026-07-21 신규: 같은 캠페인의 여러 부품번호 행은 rcl573_classify_
+        # compdesc.py가 캠페인 단위로 분류하므로 compdesc1_values가 정상적으로는
+        # 값 1개짜리 집합이어야 한다. 혹시 여러 값이 섞여 있으면(데이터 이상)
+        # 임의로 하나를 고르지 않고 정직하게 None으로 둬서 폴백 경로를 타게 한다
+        # — 틀린 값 하나를 확신 있게 쓰는 것보다 "모르겠다"가 안전하다.
+        compdesc1 = next(iter(g["compdesc1_values"])) if len(g["compdesc1_values"]) == 1 else None
+        if compdesc1:
+            n_with_compdesc1 += 1
 
         register_recall(
             conn,
@@ -205,6 +259,7 @@ def load_rcl573_recalls(
             campaign_no=campaign,
             recall_date=recall_date,
             component=component,
+            compdesc1=compdesc1,
             summary=summary,
             source="RCL573",
             status="OPEN",
@@ -217,18 +272,27 @@ def load_rcl573_recalls(
         "source_rows": len(rows),
         "recall_records_loaded": n_loaded,
         "recall_records_with_recall_date": n_with_recall_date,
+        "recall_records_with_compdesc1": n_with_compdesc1,
         "rows_without_affected_models": n_no_affected_models,
         "unmapped_models": sorted(unmapped_models),
     }
     print(
         f"[STA RECALL] {path.name} -> recall_records {n_loaded:,}건 적재 "
         f"(원본 {len(rows):,}행, affected_models 없음 {n_no_affected_models}행, "
-        f"recall_date 있음 {n_with_recall_date}/{n_loaded}건)"
+        f"recall_date 있음 {n_with_recall_date}/{n_loaded}건, "
+        f"compdesc1 있음 {n_with_compdesc1}/{n_loaded}건)"
     )
     if n_loaded and n_with_recall_date == 0:
         print(
             "[STA RECALL][INFO] recall_date가 전부 비어 있습니다 — rcl573_parse.py를 "
             "아직 재실행하지 않은 예전 CSV일 수 있습니다(2026-07-13 수정분 반영 전)."
+        )
+    if n_loaded and n_with_compdesc1 == 0:
+        print(
+            "[STA RECALL][INFO] compdesc1이 전부 비어 있습니다 — rcl573_classify_compdesc.py를 "
+            "아직 실행하지 않은 원본 CSV(rcl573_components_normalized.csv)일 수 있습니다. "
+            "이 경우 리콜 매칭은 자동으로 기존 키워드 휴리스틱(COMPDESC1_RECALL_KEYWORDS)으로 "
+            "동작합니다 — 기능이 멈추진 않지만 정확도가 떨어집니다."
         )
     if unmapped_models:
         print(
