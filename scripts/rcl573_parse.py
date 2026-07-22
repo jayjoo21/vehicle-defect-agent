@@ -207,7 +207,12 @@ def parse_all_pdfs() -> dict[str, dict]:
 
 
 OUT_COLS = [
-    "campaign", "mfr_recall_no", "population", "component_name", "component_desc",
+    # recall_date: 2026-07-13 버그 수정 — 플랫파일(rcl573_flatfile_components.csv)엔
+    # RCDATE(리콜일)가 있는데 이 목록에 빠져 있어서 최종 CSV(및 그걸 그대로 이어받는
+    # rcl573_components.csv → rcl573_components_normalized.csv)에서 리콜일이 통째로
+    # 소실되고 있었음. 다운스트림(STA 결함 시그널 상태 판정)이 리콜일을 못 받아서
+    # "리콜일 미상"으로만 처리하던 원인. campaign 바로 뒤에 추가.
+    "campaign", "recall_date", "mfr_recall_no", "population", "component_name", "component_desc",
     "part_number", "supplier_name", "supplier_country", "defect_cause", "fmvss",
     "remedy_type", "corrected_in_production", "chronology_attached", "chronology_note",
     "chronology_url", "pdf_url", "affected_models",
@@ -224,6 +229,7 @@ def build_final_csv(pdf_results: dict[str, dict], pdf_urls: dict[str, str]):
         pdf = pdf_results.get(campaign, {})
         out_rows.append({
             "campaign": campaign,
+            "recall_date": row.get("RCDATE", ""),
             "mfr_recall_no": row.get("MFGCAMPNO", ""),
             "population": row.get("POTAFF", ""),
             "component_name": row.get("MFR_COMP_NAME", ""),
@@ -270,7 +276,7 @@ def verify(out_rows: list[dict], pdf_results: dict[str, dict], pdf_urls: dict[st
         vals = [r[field] for r in out_rows]
         return sum(1 for v in vals if not str(v).strip()) / len(vals) if vals else 0.0
 
-    for field in ["part_number", "supplier_name", "supplier_country", "corrected_in_production"]:
+    for field in ["recall_date", "part_number", "supplier_name", "supplier_country", "corrected_in_production"]:
         print(f"[verify] {field} 결측률: {missing_rate(field):.1%}")
 
     campaigns_hk = set()
@@ -289,6 +295,7 @@ def verify(out_rows: list[dict], pdf_results: dict[str, dict], pdf_urls: dict[st
         writer.writerow(["pdf_parse_error", n_pdf_error])
         writer.writerow(["pdf_url_found", len(pdf_urls)])
         writer.writerow(["total_campaigns", total_campaigns])
+        writer.writerow(["recall_date_missing_rate", round(missing_rate("recall_date"), 4)])
         writer.writerow(["part_number_missing_rate", round(missing_rate("part_number"), 4)])
         writer.writerow(["supplier_name_missing_rate", round(missing_rate("supplier_name"), 4)])
         writer.writerow(["supplier_country_missing_rate", round(missing_rate("supplier_country"), 4)])
