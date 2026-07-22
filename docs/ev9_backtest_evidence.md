@@ -93,12 +93,14 @@ grid["baseline_avg6"] = grid.groupby("model")["count"].transform(
 ```
 실행 시각(run_time):      2026-07-22T20:52:23+09:00
 입력 파일 경로:            data/processed/hk_electrical_recent_full.csv
-입력 파일 SHA-256:         4358dc6dcac7c130ac2b7ffb1bd7ce23f0785bdbcc050e8541f4e36a4c3a8652
+입력 파일 SHA-256:         7df5c35a8d838ed7faa4ae31571baf9ef46018bdafd99db654f5b484a858b1e5
 원본 전체 행 수(모델+LDATE만): 16,964
 LDATE 파싱 실패(NaT):       0건
 컷오프(2024-10-10) 이후로 제외된 행 수: 8,028건 (전 차종 대상, EV9 한정 아님)
 컷오프 이전으로 남은 행 수:  8,936건
 ```
+
+입력 파일에서 VIN(식별) 컬럼을 공개 전 제거했으며, 제거 후 감지 결과(발화월·건수·선행일·포착여부)는 제거 전과 동일함을 재확인하였다.
 
 컷오프 이전 8,936건만으로 EV9 모델·2024-01~09월 그리드를 재계산한 결과:
 
