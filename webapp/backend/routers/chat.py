@@ -217,7 +217,10 @@ async def _ev6_cluster_flow(conn, llm: LLM, role: str = "consumer"):
 
     t0 = time.perf_counter()
     context, sources = ev6_build_context(recent_count, iccu_campaigns, cluster_rows)
-    result = llm.call("answer", "ev6_cluster", context)
+    # asyncio.to_thread: llm.call()의 openai SDK 호출은 동기(블로킹)라, 그냥 호출하면 응답이
+    # 오는 동안 이벤트 루프 전체가 멈춰 다른 요청(헬스체크 포함)이 전혀 처리되지 않는다(실측
+    # 확인 — 연쇄적으로 다음 요청들이 큐에 막혀 응답 없이 끊기는 문제를 유발했었음).
+    result = await asyncio.to_thread(llm.call, "answer", "ev6_cluster", context)
     report_id = _report_id_by_title(conn, EV6_REPORT_TITLE)
     yield _sse(
         "step",
@@ -343,7 +346,7 @@ async def _ioniq5_charging_flow(conn, llm: LLM, role: str = "consumer"):
 
     t0 = time.perf_counter()
     context, sources = ioniq5_build_context(recent_rows, iccu_campaigns, iccu_hits)
-    result = llm.call("answer", "ioniq5_charging", context)
+    result = await asyncio.to_thread(llm.call, "answer", "ioniq5_charging", context)
     report_id = _report_id_by_title(conn, IONIQ5_REPORT_TITLE)
     yield _sse(
         "step",
@@ -373,7 +376,7 @@ async def _out_of_scope_flow(llm: LLM):
     )
     await asyncio.sleep(STEP_DELAY)
     t0 = time.perf_counter()
-    result = llm.call("answer", "out_of_scope", {})
+    result = await asyncio.to_thread(llm.call, "answer", "out_of_scope", {})
     yield _sse(
         "step",
         {"id": 2, "icon": "check-circle", "title": "검수", "result": "통과 (범위 밖 응답)", "status": "done",
@@ -390,15 +393,23 @@ async def _stream(message: str, conn, role: str = "consumer"):
     scenario = detect_scenario(message)
     llm = LLM()
 
-    if scenario == "ev6_cluster":
-        async for chunk in _ev6_cluster_flow(conn, llm, role):
-            yield chunk
-    elif scenario == "ioniq5_charging":
-        async for chunk in _ioniq5_charging_flow(conn, llm, role):
-            yield chunk
-    else:
-        async for chunk in _out_of_scope_flow(llm):
-            yield chunk
+    try:
+        if scenario == "ev6_cluster":
+            async for chunk in _ev6_cluster_flow(conn, llm, role):
+                yield chunk
+        elif scenario == "ioniq5_charging":
+            async for chunk in _ioniq5_charging_flow(conn, llm, role):
+                yield chunk
+        else:
+            async for chunk in _out_of_scope_flow(llm):
+                yield chunk
+    except Exception as e:
+        # llm.call()이 타임아웃·API 오류 등 어떤 이유로든 실패하면 이 except가 없을 때 SSE
+        # 제너레이터가 그대로 죽어 done이 영영 안 가고 프론트 로더가 무한 대기한다(배포 환경에서
+        # 실제 관측된 증상). 원인은 서버 로그에 남기고, 클라이언트에는 안전한 일반 메시지만 보낸 뒤
+        # 반드시 done까지 보내 스트림을 정상 종료시킨다.
+        print(f"[chat] scenario={scenario} 처리 중 오류: {type(e).__name__}: {e}", flush=True)
+        yield _sse("error", {"message": "일시적인 오류가 발생했습니다. 잠시 후 다시 시도해 주세요."})
 
     yield _sse("done", {})
 

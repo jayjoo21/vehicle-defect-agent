@@ -9,6 +9,15 @@ from env_config import load_env
 
 load_env()  # webapp/.env를 os.environ에 적재 (이미 설정된 실제 OS 환경변수는 덮어쓰지 않음)
 
+# 배포 환경(Render 등)에서 환경변수가 실제로 프로세스에 전달됐는지 Logs에서 바로 확인하기 위한
+# 부팅 로그 — 값 자체는 절대 남기지 않고 존재 여부(bool)만 남긴다.
+print(
+    f"[startup] LLM_PROVIDER={os.getenv('LLM_PROVIDER', 'mock')} "
+    f"OPENAI_API_KEY_set={bool(os.getenv('OPENAI_API_KEY'))} "
+    f"ANTHROPIC_API_KEY_set={bool(os.getenv('ANTHROPIC_API_KEY'))}",
+    flush=True,
+)
+
 from routers import auth, chat, notify, parts, reports, signals, subscriptions, vehicles
 
 app = FastAPI(title="MOBISCOPE API")

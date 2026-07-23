@@ -27,6 +27,10 @@ from pathlib import Path
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from env_config import load_env
+
+load_env()  # webapp/.env를 os.environ에 적재 — main.py와 동일 패턴. 이게 없으면 LLM_PROVIDER 등이
+# OS 환경변수에만 의존해, .env에 실제 값을 채워도 seed.py가 조용히 mock으로 폴백하는 문제가 있었다.
 from db import get_connection
 from models import init_schema
 from engine.normalize import normalize_model
@@ -367,7 +371,11 @@ def seed_chat_reports(conn) -> dict:
     from routers.signals import _recall_dates_by_model
     from llm.adapter import LLM
 
-    llm = LLM()
+    # provider="mock" 명시 강제 — 시드는 결정적이어야 하고(발표자료 수치와 항상 일치),
+    # Dockerfile이 이미지 빌드 시 seed.py를 실행하므로 ambient LLM_PROVIDER(.env, 실배포에서는
+    # openai)를 그대로 따르면 빌드마다 실LLM 호출 비용·실패 위험이 생긴다. 실LLM은 런타임 채팅
+    # (routers/chat.py, LLM() 인자 없이 생성 — ambient LLM_PROVIDER를 그대로 따름)에만 쓴다.
+    llm = LLM(provider="mock")
     reference_month = f"{RECENT_CUTOFF[:7]}~{DATA_AS_OF[:7]}"
     latest_month = conn.execute("SELECT MAX(month) FROM signals").fetchone()[0]
     recall_dates_by_model = _recall_dates_by_model(conn)

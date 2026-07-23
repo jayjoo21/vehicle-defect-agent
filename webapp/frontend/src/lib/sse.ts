@@ -19,6 +19,7 @@ function parseEvent(raw: string, handlers: StreamChatHandlers) {
   const parsed = JSON.parse(data)
   if (event === 'step') handlers.onStep(parsed as ChatStep)
   else if (event === 'answer') handlers.onAnswer(parsed as ChatAnswer)
+  else if (event === 'error') handlers.onError(new Error((parsed as { message?: string }).message ?? '알 수 없는 오류'))
   else if (event === 'done') handlers.onDone()
 }
 
