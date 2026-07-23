@@ -7,7 +7,6 @@ import { linkifyGlossary } from '../lib/glossary'
 import { buildSemanticGraph } from '../lib/semanticGraph'
 import { DISCLAIMER } from '../lib/tokens'
 import SourceChips from './SourceChips'
-import SourceModal from './SourceModal'
 import SemanticNetworkGraph from './SemanticNetworkGraph'
 
 function Badge({ text }: { text: string }) {
@@ -26,7 +25,6 @@ function Badge({ text }: { text: string }) {
 export default function ChatAnswerCard({ question, answer }: { question: string; answer: ChatAnswer }) {
   const [quotesOpen, setQuotesOpen] = useState(false)
   const [partsOpen, setPartsOpen] = useState(false)
-  const [sourceModal, setSourceModal] = useState<string | null>(null)
   const s = answer.structured
   // sources(odino/campaign)에 실린 실제 부품·캠페인 정보로부터 그래프를 구성 — 근거가 없으면
   // 빈 그래프를 반환하고 SemanticNetworkGraph가 자체 더미 데이터로 대체한다.
@@ -40,11 +38,10 @@ export default function ChatAnswerCard({ question, answer }: { question: string;
       <div className="card p-6">
         <div className="text-sm leading-relaxed">{renderMarkdown(answer.markdown)}</div>
         <SemanticGraphSection graph={graph} />
-        <SourceChips onSelect={setSourceModal} />
+        <SourceChips parts={[]} />
         <p className="mt-4 border-t pt-3 text-[11px]" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
           {DISCLAIMER}
         </p>
-        <SourceModal open={sourceModal != null} title={sourceModal} onClose={() => setSourceModal(null)} />
       </div>
     )
   }
@@ -191,13 +188,11 @@ export default function ChatAnswerCard({ question, answer }: { question: string;
 
       <SemanticGraphSection graph={graph} />
 
-      <SourceChips onSelect={setSourceModal} />
+      <SourceChips parts={s.parts} />
 
       <p className="mt-4 border-t pt-3 text-[11px]" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
         {DISCLAIMER}
       </p>
-
-      <SourceModal open={sourceModal != null} title={sourceModal} onClose={() => setSourceModal(null)} />
     </div>
   )
 }

@@ -4,7 +4,6 @@ import type { Report } from '../lib/types'
 import { renderMarkdown, splitConfidenceSection } from '../lib/markdown'
 import { DISCLAIMER, stateColor, stateLabel } from '../lib/tokens'
 import SourceChips from './SourceChips'
-import SourceModal from './SourceModal'
 
 function MetricCell({ label, value, suffix }: { label: string; value: number | null; suffix: string }) {
   return (
@@ -23,7 +22,6 @@ function MetricCell({ label, value, suffix }: { label: string; value: number | n
 // variant='flat': 리포트 허브의 A4 페이퍼 안에서 쓸 때 — 페이퍼 자체가 이미 표면이라 섹션 카드 없이 이어서 표시.
 export default function ReportPaper({ data, variant = 'card' }: { data: Report; variant?: 'card' | 'flat' }) {
   const [confidenceOpen, setConfidenceOpen] = useState(false)
-  const [sourceModal, setSourceModal] = useState<string | null>(null)
   const { body, confidence } = splitConfidenceSection(data.markdown)
   const color = data.state ? stateColor[data.state] : 'var(--color-ink-muted)'
   const sectionClass = variant === 'card' ? 'card' : ''
@@ -84,14 +82,12 @@ export default function ReportPaper({ data, variant = 'card' }: { data: Report; 
           </div>
         )}
 
-        <SourceChips onSelect={setSourceModal} />
+        <SourceChips parts={data.parts} />
 
         <p className="mt-8 border-t pt-4 text-[12px]" style={{ borderColor: 'var(--color-border)', color: 'var(--color-ink-muted)' }}>
           {DISCLAIMER}
         </p>
       </article>
-
-      <SourceModal open={sourceModal != null} title={sourceModal} onClose={() => setSourceModal(null)} />
     </div>
   )
 }

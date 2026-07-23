@@ -124,6 +124,7 @@ export interface Report {
   reference_month: string | null
   state: SignalState | null
   metrics: ReportMetrics | null
+  parts: ChatPart[]
 }
 
 export interface VehicleDomain {

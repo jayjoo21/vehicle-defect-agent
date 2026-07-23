@@ -1,12 +1,15 @@
-import { useMemo, useState } from 'react'
-import { Download, Share2, FileText } from 'lucide-react'
+import { useMemo, useRef, useState } from 'react'
+import { Download, FileText, Loader2 } from 'lucide-react'
+import html2pdf from 'html2pdf.js'
 import { api } from '../lib/api'
 import { useFetch } from '../lib/useFetch'
 import { stateColor, stateLabel } from '../lib/tokens'
 import ReportPaper from '../components/ReportPaper'
 import Skeleton from '../components/Skeleton'
 
-// PDF 다운로드·공유는 아직 실제 구현이 없는 더미 버튼 — 클릭하면 준비 중 안내만 잠깐 보여준다.
+// PDF 다운로드: Chat.tsx의 조사 채팅 PDF 내보내기와 동일한 html2pdf 로직을 재사용(새 구현 아님).
+// 공유 기능은 실제 구현이 없어(단축 URL·권한 등 백엔드 지원 전무) 버튼 자체를 두지 않는다 —
+// "준비 중" 토스트로 있는 척하지 않고, 안 되는 건 숨긴다는 이 작업의 원칙을 그대로 따름.
 export default function ReportsHub() {
   const signals = useFetch(() => api.signals(), [])
   const reportsList = useMemo(
@@ -19,11 +22,26 @@ export default function ReportsHub() {
     () => (activeId != null ? api.report(activeId) : Promise.reject(new Error('선택된 리포트 없음'))),
     [activeId],
   )
-  const [hint, setHint] = useState<string | null>(null)
+  const printRef = useRef<HTMLDivElement>(null)
+  const [exporting, setExporting] = useState(false)
 
-  function dummyAction(label: string) {
-    setHint(label)
-    setTimeout(() => setHint(null), 2200)
+  async function exportPdf() {
+    if (!printRef.current || exporting || !report.data) return
+    setExporting(true)
+    try {
+      await html2pdf()
+        .set({
+          filename: `MOBISCOPE_${report.data.title.replace(/[^\w가-힣-]+/g, '_')}.pdf`,
+          margin: 10,
+          image: { type: 'jpeg', quality: 0.95 },
+          html2canvas: { scale: 2, useCORS: true, backgroundColor: '#FFFFFF' },
+          jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+        })
+        .from(printRef.current)
+        .save()
+    } finally {
+      setExporting(false)
+    }
   }
 
   return (
@@ -66,34 +84,23 @@ export default function ReportsHub() {
 
         {/* 우측: A4 비율 흰색 페이퍼 */}
         <div className="flex flex-col gap-3">
-          {activeId != null && (
+          {activeId != null && report.data && (
             <div className="flex items-center justify-end gap-2">
-              {hint && (
-                <span className="text-[12px]" style={{ color: 'var(--color-ink-muted)' }}>
-                  {hint}
-                </span>
-              )}
               <button
-                onClick={() => dummyAction('PDF 다운로드 기능은 준비 중입니다')}
-                className="btn-tension inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium"
+                onClick={exportPdf}
+                disabled={exporting}
+                className="btn-tension inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium disabled:opacity-60"
                 style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}
               >
-                <Download size={14} strokeWidth={1.75} />
-                PDF 다운로드
-              </button>
-              <button
-                onClick={() => dummyAction('공유 링크 기능은 준비 중입니다')}
-                className="btn-tension inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-medium"
-                style={{ backgroundColor: 'var(--color-navy-soft)', color: 'var(--color-navy)' }}
-              >
-                <Share2 size={14} strokeWidth={1.75} />
-                공유
+                {exporting ? <Loader2 size={14} strokeWidth={1.75} className="animate-spin" /> : <Download size={14} strokeWidth={1.75} />}
+                {exporting ? '내보내는 중...' : 'PDF 다운로드'}
               </button>
             </div>
           )}
 
           <div className="mx-auto w-full" style={{ maxWidth: 720 }}>
             <div
+              ref={printRef}
               className="rounded-sm p-8 sm:p-12"
               style={{ backgroundColor: 'var(--color-surface)', boxShadow: '0 8px 30px rgba(15,23,42,.14), 0 2px 8px rgba(15,23,42,.08)', minHeight: 400 }}
             >
